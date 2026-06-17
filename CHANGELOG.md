@@ -14,6 +14,20 @@
   Rust in `src/ascii_view.rs::diff_to_ascii` (4 unit tests); refuses grids > 64×64
   (crop first). Live-verified on a 6-frame sprite (frame 1→3 = 131 changed cells,
   correct grid + palette legend).
+- **SPEC-005 Phase 1 — `src/gutter.rs`: coordinate gutter compositor (Perception
+  fast-follow, research Path 1 §A).** A pure-Rust margin band that labels the
+  upscaled preview with **chunky numeric ticks** every 8 source-px along the top and
+  left — VLMs are blind to grid geometry, but in-grid numeric labels roughly double
+  row/col accuracy ([VLMs are Blind]). A built-in 3×5 bitmap font (no font dep); the
+  label colour is the candidate **maximally distant in CIELAB ΔE** from the sprite
+  palette *and* the band (reuses `color_ops`), so labels never read as art; and
+  because the upscale factor is integer, any (x,y) the agent reads off the gutter
+  **inverts back to an exact source coordinate** for `live_draw_pixels`. Refuses a
+  tick density below the legibility floor (`step × scale < 24px`). **7 unit tests**
+  (inversion identity, off-palette pick, density refusal, byte-faithful art blit).
+  Wiring it onto `live_save_preview` is SPEC-005 Phase 2/3. See SPEC-005 / research §A.
+
+  [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three
   new `live_*` tools that make every colour operation legal by construction:
   `live_palette_snap` (snap a layer/selection's off-palette colours to the nearest

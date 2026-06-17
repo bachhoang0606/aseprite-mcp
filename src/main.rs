@@ -9,6 +9,7 @@ mod aseprite;
 mod autotile;
 mod color_ops;
 mod filmstrip;
+mod gutter;
 mod live;
 mod preview;
 mod server;
