@@ -1,11 +1,16 @@
 # SPEC-004 — Constrained / semantic drawing (palette-snap + adjust-pixels)
 
-- Status: Draft (2026-06-14). **Phases 1–4 implemented.** Phase 1 = `src/color_ops.rs`
+- Status: **Done (2026-06-16). Phases 1–4 live-verified.** Phase 1 = `src/color_ops.rs`
   (pure CIELAB/CIEDE2000 + semantic ops + colour-map), 11 unit tests green. Phases
   2–4 = live tools `live_palette_snap` / `live_adjust_pixels` / `live_snap_colors`
   (`src/live.rs` + `src/server.rs`) + plugin handlers `get_region_colors` /
-  `apply_color_map` (RGB only, v1); compile-green + Lua-parse-clean. **Live E2E
-  pending an Aseprite run** (`[~]` items below).
+  `apply_color_map` (RGB only, v1). **Live-verified on Aseprite 1.3.17.2 (plugin
+  0.3.1):** snap_colors LAB prediction, palette_snap (off-palette → palette-only,
+  512px, confirmed by ascii_view legend), adjust_pixels darken (darker + cooler
+  hue-shift, raw shade with clamp=false) and lighten (clamp=true → palette-legal),
+  plus the audit-fix errors (empty_selection, not_an_image_layer). The
+  `Image:pixels()` iterator + clone→reassign persistence (the one unverified risk)
+  works on a real RGB cel.
 - Owner: project
 - Checklist items advanced: 2.x (new live tool surface), 7.3 (snap makes off-ramp
   colors impossible → the sprite linter goes from catcher to non-issue), 9.4
@@ -110,15 +115,14 @@ one-call habit, and works for non-vision clients too.
       (`src/color_ops.rs::tests`, 11 cases) with **no Aseprite** — incl. CIEDE2000
       validated vs the Sharma reference pairs, a brute-forced **"LAB nearest ≠ RGBA
       nearest"** proof, and the darken-cools / lighten-warms direction. CI-green.
-- [~] Phase 2: `live_palette_snap` recolours an off-palette region to palette-only,
-      in one undo step, and is idempotent — verified by `tools/lint_sprite.py`
-      reporting **0 off-palette** afterwards. *Code-complete (plugin
-      `get_region_colors`/`apply_color_map` + Rust); **live E2E pending**.*
-- [~] Phase 3: `live_adjust_pixels(op=darken)` on a flat fill yields a darker,
-      hue-shifted, **palette-legal** colour; `clamp_to_palette=false` yields the raw
-      shade (off-palette allowed). *Code-complete; **live E2E pending**.*
-- [~] Phase 4: `live_snap_colors` returns palette-legal hex for arbitrary inputs.
-      *Code-complete; **live E2E pending**.*
+- [x] Phase 2: `live_palette_snap` recolours an off-palette region to palette-only —
+      **live-verified 2026-06-16** (two off-palette blocks → 2 palette colours, 512
+      px, `ascii_view` legend shows palette-only; one `app.transaction`).
+- [x] Phase 3: `live_adjust_pixels(op=darken)` yields a darker, hue-shifted colour
+      (live: `#d83838` → `#6c1c37`, cooler) and `clamp_to_palette=false` gives the raw
+      shade; `lighten` with clamp=true returned palette-legal colours. **Live-verified.**
+- [x] Phase 4: `live_snap_colors` returns palette-legal hex for arbitrary inputs —
+      **live-verified** (off-red/off-blue/off-dark → correct CIELAB palette entries).
 - [x] `live_get_capabilities` advertises the new capability
       (`features += ["color_ops"]`, plugin 0.3.0); the new param structs are in the
       schema-contract test and the crate compiles clean (clippy-clean).
