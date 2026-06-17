@@ -1,5 +1,8 @@
 # Aseprite MCP Server
 
+[![Quality gates](https://github.com/bachhoang0606/aseprite-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/bachhoang0606/aseprite-mcp/actions/workflows/quality.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A **live-first** Model Context Protocol (MCP) server, written in Rust, that lets an
 AI agent drive a **running Aseprite** session — drawing, animating, managing
 palettes and tilemaps directly in the open editor, with perception tools so the
