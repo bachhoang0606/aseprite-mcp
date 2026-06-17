@@ -1,0 +1,12 @@
+# Supply-chain hygiene (checklist 10.5): keep Rust crates and GitHub Actions
+# majors patched automatically. Weekly cadence; small repo, low PR noise.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

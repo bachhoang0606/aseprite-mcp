@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aseprite-live": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/target/release/aseprite_mcp.exe",
+      "env": {
+        "ASEPRITE_PATH": "${ASEPRITE_PATH}",
+        "ASEPRITE_MCP_LIVE_PORT": "9876",
+        "ASEPRITE_MCP_LIVE_CONTROL_PORT": "9877"
+      }
+    }
+  }
+}

@@ -1,0 +1,74 @@
+name: Release
+
+# Builds release binaries for all three desktop OSes (checklist 1.7).
+#  - on a v* tag: builds, packages, and publishes a GitHub Release with the
+#    binaries attached (plus the Aseprite Lua extension folder).
+#  - on workflow_dispatch: same build + artifact upload, no release — lets the
+#    pipeline be exercised end-to-end before the first real tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            ext: ""
+          - os: windows-latest
+            target: windows-x86_64
+            ext: ".exe"
+          - os: macos-latest
+            target: macos-arm64
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build release binaries (server + bridge)
+        run: cargo build --release --bins
+      - name: Stage package
+        shell: bash
+        run: |
+          mkdir -p dist/aseprite-mcp-${{ matrix.target }}
+          cp "target/release/aseprite_mcp${{ matrix.ext }}" dist/aseprite-mcp-${{ matrix.target }}/
+          cp "target/release/aseprite-live-bridge${{ matrix.ext }}" dist/aseprite-mcp-${{ matrix.target }}/
+          cp -r scripts/aseprite-mcp-plugin dist/aseprite-mcp-${{ matrix.target }}/
+          cp LICENSE README.md SECURITY.md dist/aseprite-mcp-${{ matrix.target }}/
+          cd dist && tar -czf "aseprite-mcp-${{ matrix.target }}.tar.gz" "aseprite-mcp-${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-mcp-${{ matrix.target }}
+          path: dist/aseprite-mcp-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    # Only on a real v* tag push; dispatch runs stop at artifacts.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release with binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+            --title "$GITHUB_REF_NAME" --generate-notes

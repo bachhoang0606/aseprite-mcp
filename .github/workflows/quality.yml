@@ -1,0 +1,138 @@
+name: Quality gates
+
+# Runs the full quality gate on PRs and pushes to main:
+#  - rust:           build + test on ubuntu/windows/macos (unit + bridge loopback
+#                    + tool-schema contract)
+#  - install-verify: cross-OS build of both release binaries + no-hardcoded-path
+#                    + LICENSE checks (checklist 1.4/1.6) + install-script syntax
+#  - quality:        stdlib-only Python gates (sprite linter, visual-regression
+#                    golden diff, tier-A eval harness incl. tier-B case validation)
+#  - packaging:      plugin/marketplace/mcp/hooks manifest validity
+#  - audit:          cargo-audit supply-chain gate (checklist 10.5)
+# push is main-only (PRs already cover feature branches — avoids double runs);
+# concurrency cancels superseded runs on the same ref.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust tests (${{ matrix.os }})
+    # Build + test the MCP server and standalone bridge on all three desktop
+    # OSes so cross-platform breakage (paths, sockets) is caught (checklist 1.4).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build
+        run: cargo build --verbose
+      - name: Test
+        run: cargo test --verbose
+
+  install-verify:
+    name: Install verification (${{ matrix.os }})
+    # Proves the cross-platform install produces both release binaries with the
+    # OS-correct name and that no shipped config hardcodes a user home path
+    # (checklist 1.4: verified on >=2 OS, no hardcoded user paths).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Build release binaries (server + bridge)
+        run: cargo build --release --bins
+      - name: Verify binaries exist + no hardcoded user paths + LICENSE
+        run: python scripts/verify_install.py
+      - name: Install-script syntax check (bash, mac/linux path)
+        shell: bash
+        run: bash -n scripts/install-plugin.sh && bash -n scripts/uninstall-plugin.sh
+
+  quality:
+    name: Sprite quality gates (Python, stdlib-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Tier-A eval harness (palette + guard + linter + visual + health)
+        run: python evals/run.py
+      - name: Hook contract tests (guard / palette-lint / health / manifest)
+        run: python tests/test_hooks.py
+      - name: Palette extractor tests (frequency / median-cut / kmeans)
+        run: python tests/test_extract_palette.py
+      - name: Visual-regression golden diff (explicit)
+        run: python tests/visual/diff.py tests/visual/fixtures/good_swatch.png tests/visual/golden/good_swatch.png
+      - name: Sprite linter self-check (off-palette must be caught)
+        run: |
+          python tools/lint_sprite.py tests/visual/fixtures/bad_offpalette.png \
+            --palette knowledge/palettes/goblin-default.json --warn-only
+      - name: Seam-lint tests (tile edge-match, SPEC-003 Phase 4)
+        run: python tests/test_seam_lint.py
+
+  packaging:
+    name: Plugin packaging (manifest validity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Validate plugin/marketplace/mcp/hooks JSON
+        run: |
+          python - <<'PY'
+          import json, sys
+          required = {
+            ".claude-plugin/plugin.json": ["name"],
+            ".claude-plugin/marketplace.json": ["name", "owner", "plugins"],
+            "mcp/aseprite-live.json": ["mcpServers"],
+            "hooks/hooks.json": ["hooks"],
+          }
+          bad = False
+          for path, keys in required.items():
+              try:
+                  data = json.load(open(path, encoding="utf-8"))
+              except Exception as e:
+                  print(f"INVALID JSON: {path}: {e}"); bad = True; continue
+              missing = [k for k in keys if k not in data]
+              if missing:
+                  print(f"{path}: missing required keys {missing}"); bad = True
+              else:
+                  print(f"OK: {path}")
+          sys.exit(1 if bad else 0)
+          PY
+      - name: claude plugin validate (best-effort; skipped if CLI absent)
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            claude plugin validate ./ || echo "validate reported issues"
+          else
+            echo "claude CLI not on PATH — skipping (run 'claude plugin validate ./' locally)"
+          fi
+
+  audit:
+    name: Supply-chain audit (cargo audit)
+    # Checklist 10.5: fail on known RUSTSEC vulnerabilities in the dependency
+    # tree (unmaintained-crate advisories surface as warnings, not failures).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependency tree
+        run: cargo audit

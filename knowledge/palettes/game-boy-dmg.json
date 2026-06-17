@@ -1,0 +1,10 @@
+{
+  "name": "Game Boy (DMG)",
+  "source": "Original Game Boy (DMG-01) 4-shade green LCD palette — widely cited reference values",
+  "colors": ["#0F380F", "#306230", "#8BAC0F", "#9BBC0F"],
+  "names": ["darkest", "dark", "light", "lightest"],
+  "ramps": {
+    "value": ["#0F380F", "#306230", "#8BAC0F", "#9BBC0F"]
+  },
+  "notes": "4 shades only — the discipline is in value placement, not color. One ramp; everything (skin, metal, cloth) is rendered with the same 4 steps, distinguished by texture and shape. Excellent for practicing readability under extreme constraint. For the modern grey Game Boy Pocket look, substitute #FFFFFF/#A8A8A8/#545454/#000000."
+}

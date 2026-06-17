@@ -1,0 +1,99 @@
+{
+  "description": "Tier-B LLM-judge eval cases (live, non-deterministic). Each case runs a skill/agent prompt against a live Aseprite session, then an LLM judge scores the result against a weighted rubric grounded in rules/. NOT run in CI (needs Aseprite + tokens). CI only structurally validates this file via evals/judge.py (wired into run.py as tier_b_cases_wellformed). Run a case manually: `python evals/judge.py --emit <case_id>` prints the judge prompt; paste the live result + prompt to a judge model and record the score in evals/RESULTS.md.",
+  "scoring": {
+    "scale": "Each criterion is scored 0.0-1.0 by the judge. Case score = Σ(criterion_score × weight). A criterion's weights across a case sum to 1.0.",
+    "pass_threshold_default": 0.75,
+    "rule": "A case PASSES when case_score >= pass_threshold AND no criterion marked must_pass scores < 0.5."
+  },
+  "cases": [
+    {
+      "id": "tb_pixel_new",
+      "component": "/pixel-new",
+      "checklist": "5.1",
+      "prompt": "Scaffold a new 32x32 goblin sprite with the goblin-default palette and a rigged, animation-ready layer base.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "preflight", "weight": 0.1, "must_pass": true, "rule": "skills/README.md", "desc": "Called live_preflight and only proceeded when ready:true (never fell back to batch/file tools)." },
+        { "id": "canvas", "weight": 0.15, "rule": "rules/00-core-principles.md", "desc": "Canvas is exactly 32x32; size is intentional, not arbitrary." },
+        { "id": "palette_first", "weight": 0.2, "must_pass": true, "rule": "rules/01-palette-and-color.md", "desc": "A palette/ramps were locked BEFORE any pixels were drawn; only palette colors used." },
+        { "id": "rig", "weight": 0.3, "must_pass": true, "rule": "rules/05-layers-and-rig.md", "desc": "Standard rig layers exist and are correctly named (Shadow, Legs, Body, ArmL, ArmR, Head), bottom-to-top order, limbs separable." },
+        { "id": "silhouette", "weight": 0.15, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "Base silhouette reads as a goblin at 100%; proportions plausible." },
+        { "id": "clean", "weight": 0.1, "rule": "rules/06-review-checklist.md", "desc": "No orphan/off-palette pixels; scratch/AI-draft layers removed or clearly marked." }
+      ]
+    },
+    {
+      "id": "tb_pixel_shade",
+      "component": "/pixel-shade",
+      "checklist": "5.2",
+      "prompt": "Shade the Body layer of this sprite using the skin ramp, light coming from the upper-left.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "ramp_only", "weight": 0.25, "must_pass": true, "rule": "rules/01-palette-and-color.md", "desc": "Only colors from the existing skin ramp were introduced; no new/off-ramp colors." },
+        { "id": "hue_shift", "weight": 0.2, "rule": "rules/01-palette-and-color.md", "desc": "Shadows hue-shift cooler/darker and highlights warmer/lighter, not just value changes on one hue." },
+        { "id": "light_dir", "weight": 0.2, "rule": "rules/02-shading-outlining-aa.md", "desc": "Light direction is consistent (upper-left) across the form; shadow falls on the opposite side." },
+        { "id": "no_banding_pillow", "weight": 0.2, "rule": "rules/02-shading-outlining-aa.md", "desc": "No banding (parallel jagged ramp steps) and no pillow-shading (concentric rings ignoring a light source)." },
+        { "id": "idempotent", "weight": 0.1, "must_pass": true, "rule": "skills/pixel-shade/SKILL.md", "desc": "Re-running the skill on an already-shaded layer is idempotent / previewable, not destructive." },
+        { "id": "layer_scope", "weight": 0.05, "rule": "rules/05-layers-and-rig.md", "desc": "Only the Body layer was modified; other rig layers untouched." }
+      ]
+    },
+    {
+      "id": "tb_pixel_animate",
+      "component": "/pixel-animate",
+      "checklist": "5.3",
+      "prompt": "Make a 4-frame walk cycle for this rig.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "keys", "weight": 0.2, "must_pass": true, "rule": "rules/04-animation.md", "desc": "Contact and Passing key poses are present (pose-to-pose), 4 frames minimum." },
+        { "id": "body_bob", "weight": 0.2, "rule": "rules/04-animation.md", "desc": "Body bobs vertically (low at Contact, high at Passing) — not flat/skating." },
+        { "id": "counter_swing", "weight": 0.15, "rule": "rules/04-animation.md", "desc": "Arms counter-swing the legs; loose parts (sack/ears) lag a frame." },
+        { "id": "volume", "weight": 0.15, "must_pass": true, "rule": "rules/04-animation.md", "desc": "Volume/mass is preserved across frames (no popping); animated per-layer, not redrawn." },
+        { "id": "tag_loop", "weight": 0.15, "rule": "rules/04-animation.md", "desc": "A `walk` tag wraps the frames with the correct loop direction." },
+        { "id": "timing", "weight": 0.15, "rule": "rules/04-animation.md", "desc": "Per-frame durations are in the ~120-150 ms walk range and set explicitly." }
+      ]
+    },
+    {
+      "id": "tb_pixel_export",
+      "component": "/pixel-export",
+      "checklist": "5.4",
+      "prompt": "Export this animated sprite as a spritesheet PNG plus JSON metadata, ready for a game engine.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "artifacts", "weight": 0.3, "must_pass": true, "rule": "skills/pixel-export/SKILL.md", "desc": "Produced the requested spritesheet PNG (and/or GIF) at the correct path; files actually exist." },
+        { "id": "json_meta", "weight": 0.3, "must_pass": true, "rule": "skills/pixel-export/SKILL.md", "desc": "Emitted JSON metadata containing frame rects, tags, and per-frame durations usable by an engine." },
+        { "id": "no_draft", "weight": 0.2, "rule": "rules/05-layers-and-rig.md", "desc": "Scratch/AI-draft layers are excluded from the exported output." },
+        { "id": "packing", "weight": 0.1, "rule": "rules/06-review-checklist.md", "desc": "Sheet packing is sane (consistent cell size; documented or power-of-two when relevant)." },
+        { "id": "preflight_path", "weight": 0.1, "rule": "skills/README.md", "desc": "Used live tools/correct working-dir-relative paths; no silent batch fallback for the live source." }
+      ]
+    },
+    {
+      "id": "tb_animation_director",
+      "component": "animation-director",
+      "checklist": "6.2",
+      "prompt": "Plan an attack cycle (club swing) for the goblin rig before any frames are drawn.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "plan_table", "weight": 0.25, "must_pass": true, "rule": "agents/animation-director.md", "desc": "Output is a frame-by-frame plan table (frame | pose | moving layers/offsets | ms), not drawn frames — plans in its own context without main-context bloat." },
+        { "id": "anticipation", "weight": 0.2, "must_pass": true, "rule": "rules/04-animation.md", "desc": "Anticipation (wind-up, held ~300-400 ms) precedes the strike." },
+        { "id": "strike_arc", "weight": 0.2, "rule": "rules/04-animation.md", "desc": "Strike is a fast arc (~60-100 ms); weapon may smear but stays a big readable shape, never a stub." },
+        { "id": "follow_through", "weight": 0.15, "rule": "rules/04-animation.md", "desc": "Follow-through/recovery overshoots then settles; loose parts lag." },
+        { "id": "per_layer", "weight": 0.1, "rule": "rules/05-layers-and-rig.md", "desc": "Plan moves rig layers (limb offsets), not a full redraw." },
+        { "id": "rig_gaps", "weight": 0.1, "rule": "agents/animation-director.md", "desc": "Flags any rig gaps that would block the planned motion, and names the tag + loop type." }
+      ]
+    },
+    {
+      "id": "tb_rig_builder",
+      "component": "rig-builder",
+      "checklist": "6.4",
+      "prompt": "This goblin is drawn on a single baked layer. Split it into an animatable rig.",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "layer_plan", "weight": 0.25, "must_pass": true, "rule": "agents/rig-builder.md", "desc": "Outputs an ordered layer plan (bottom→top) stating what each layer contains and why." },
+        { "id": "anatomy", "weight": 0.25, "must_pass": true, "rule": "rules/05-layers-and-rig.md", "desc": "Correct anatomy assignments: chin→Head, shoulders/neck-base→Body, arms own layers, weapon rides the holding hand." },
+        { "id": "naming", "weight": 0.15, "rule": "rules/05-layers-and-rig.md", "desc": "PascalCase + L/R naming from the character's POV (ArmL/ArmR, LegL/LegR)." },
+        { "id": "soloed_clean", "weight": 0.2, "rule": "agents/rig-builder.md", "desc": "Gives a per-layer soloed clean/needs-fix verdict; each layer reads as a complete shape with no seam bleed." },
+        { "id": "draft_removed", "weight": 0.1, "rule": "rules/05-layers-and-rig.md", "desc": "Scratch/AI-draft layers are flagged for removal before export." },
+        { "id": "depth_34", "weight": 0.05, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "For 3/4 view, near/far limb depth & occlusion are noted." }
+      ]
+    }
+  ]
+}

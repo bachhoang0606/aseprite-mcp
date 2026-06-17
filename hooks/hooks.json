@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PLUGIN_ROOT/hooks/health_check.py\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__aseprite__.*|mcp__aseprite-live__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PLUGIN_ROOT/hooks/guard_batch_draw.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*save.*|.*export.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PLUGIN_ROOT/hooks/palette_lint_hook.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__aseprite-live__live_(draw_pixels|use_tool|new_cel|clear_cel)",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "aseprite-live",
+            "tool": "live_save_preview",
+            "timeout": 20,
+            "input": {
+              "filename": "${cwd}/.aseprite-preview.png"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

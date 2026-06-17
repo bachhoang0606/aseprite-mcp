@@ -1,0 +1,22 @@
+[package]
+name = "aseprite_mcp"
+version = "0.1.0"
+edition = "2021"
+authors = ["bachhoang0606 <0606bach@gmail.com>"]
+description = "Live-first MCP server for the Aseprite pixel-art editor — drive an open Aseprite session from an AI agent (perception, constrained colour, tilemap tooling)."
+license = "MIT"
+repository = "https://github.com/bachhoang0606/aseprite-mcp"
+
+[dependencies]
+rmcp = { version = "0.3", features = ["server", "macros", "transport-io"] }
+tokio = { version = "1.52", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "std", "fmt"] }
+futures-util = "0.3"
+tokio-tungstenite = "0.29"
+# PNG-only: decode the raw 1x save and nearest-neighbor upscale previews so a
+# vision model can actually read small sprites (perception overhaul, Path 1).
+image = { version = "0.25", default-features = false, features = ["png"] }

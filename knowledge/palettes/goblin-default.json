@@ -1,0 +1,28 @@
+{
+  "name": "Goblin (project default)",
+  "source": "Custom palette for the project's goblin sprite — hue-shifted ramps authored for this repo (see rules/01-palette-and-color.md).",
+  "colors": [
+    "#1B1226", "#241B2E",
+    "#1B4D3E", "#2E7D32", "#4CA02C", "#6ABE30", "#A6D94A",
+    "#3A2417", "#5A3A22", "#8A5a2b", "#B07a3c",
+    "#7A3B2E", "#A85a3c",
+    "#C2C3C7", "#E8E0D0",
+    "#FFEC27", "#D8202E"
+  ],
+  "names": [
+    "outline-cool", "shadow-deep",
+    "skin-shadow", "skin-mid-dark", "skin-mid", "skin-light", "skin-hi",
+    "leather-shadow", "leather-mid-dark", "leather-mid", "leather-light",
+    "mouth-shadow", "mouth-mid",
+    "tooth-grey", "tooth-light",
+    "eye-glint", "accent-red"
+  ],
+  "ramps": {
+    "skin": ["#1B4D3E", "#2E7D32", "#4CA02C", "#6ABE30", "#A6D94A"],
+    "leather": ["#3A2417", "#5A3A22", "#8A5a2b", "#B07a3c"],
+    "mouth": ["#7A3B2E", "#A85a3c"],
+    "tooth": ["#C2C3C7", "#E8E0D0"],
+    "outline": ["#1B1226"]
+  },
+  "notes": "Goblin skin ramp is hue-shifted: dark step is teal-green (#1B4D3E), highlight climbs toward yellow-green (#A6D94A) — not a flat darken/lighten. Club/leather uses the brown ramp; the weapon must stay a big readable shape (rules/03). Outline is cool near-black (#1B1226), not pure black. Reserve #FFEC27 eye-glint and #D8202E accent for sparse focal hits only."
+}

@@ -1,0 +1,50 @@
+{
+  "description": "Tier-A automatable eval cases (deterministic, no Aseprite, no LLM). Each maps to the skill/agent/hook it grades, for coverage reporting. Tier-B LLM-judge cases are run manually (see evals/README.md).",
+  "cases": [
+    {
+      "id": "palette_hueshift",
+      "covers": ["/pixel-palette", "palette-smith", "rules/01"],
+      "asserts": "goblin-default skin ramp is hue-shifted (hue spread across ramp) and value-monotonic, not value-only"
+    },
+    {
+      "id": "guard_decisions",
+      "covers": ["hook:batch-draw-guard (7.1)", "ADR-0001"],
+      "asserts": "batch drawing tools are blocked; live_* and export are allowed"
+    },
+    {
+      "id": "linter_good",
+      "covers": ["/pixel-review", "pixel-critic"],
+      "asserts": "a clean on-palette sprite produces zero linter findings"
+    },
+    {
+      "id": "linter_offpalette",
+      "covers": ["/pixel-review", "pixel-critic", "hook:palette-lint (7.3)"],
+      "asserts": "an off-palette pixel is detected"
+    },
+    {
+      "id": "linter_orphan",
+      "covers": ["/pixel-review", "rules/02"],
+      "asserts": "a stray/orphan pixel is detected"
+    },
+    {
+      "id": "visual_golden_match",
+      "covers": ["visual-regression (9.3)"],
+      "asserts": "the golden sprite diffs to zero against itself"
+    },
+    {
+      "id": "visual_detects_change",
+      "covers": ["visual-regression (9.3)"],
+      "asserts": "a changed sprite diffs non-zero against the golden"
+    },
+    {
+      "id": "health_check_json",
+      "covers": ["hook:session-health-check (7.4)"],
+      "asserts": "the SessionStart hook emits valid additionalContext JSON"
+    },
+    {
+      "id": "tier_b_cases_wellformed",
+      "covers": ["/pixel-new", "/pixel-shade", "/pixel-animate", "/pixel-export", "animation-director", "rig-builder"],
+      "asserts": "every Tier-B LLM-judge case (evals/tier_b.json) is well-formed: maps to a real component + checklist id, cites existing rule files, and rubric weights sum to 1.0"
+    }
+  ]
+}

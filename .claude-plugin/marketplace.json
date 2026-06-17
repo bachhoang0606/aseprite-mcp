@@ -1,0 +1,15 @@
+{
+  "name": "aseprite-pixel-art-marketplace",
+  "description": "Pixel-art tooling for Aseprite: the aseprite-pixel-art plugin (live MCP drawing, rules, skills, agents, hooks).",
+  "owner": {
+    "name": "bachhoang0606",
+    "email": "0606bach@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "aseprite-pixel-art",
+      "source": "./",
+      "description": "Professional pixel-art collaborator for Aseprite: live MCP drawing, encoded rules, /pixel-* skills, review/rig/palette/animation agents, live-first guard."
+    }
+  ]
+}

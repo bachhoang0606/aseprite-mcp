@@ -1,0 +1,15 @@
+{
+  "name": "aseprite-pixel-art",
+  "displayName": "Aseprite Pixel-Art",
+  "version": "0.1.0",
+  "description": "Professional pixel-art collaborator for Aseprite. Draws live in the open Aseprite window via an MCP server + WebSocket bridge, guided by encoded pixel-art rules, /pixel-* skills, review/rig/palette/animation subagents, and a live-first guard hook.",
+  "author": {
+    "name": "bachhoang0606",
+    "email": "0606bach@gmail.com"
+  },
+  "repository": "https://github.com/bachhoang0606/aseprite-mcp",
+  "license": "MIT",
+  "keywords": ["aseprite", "pixel-art", "mcp", "sprites", "animation", "shading"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./mcp/aseprite-live.json"
+}

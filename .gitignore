@@ -1,0 +1,14 @@
+/target
+/output
+.vscode
+demo/node_modules/
+demo/*.log
+demo/*.png
+demo/*.gif
+demo/*.aseprite
+demo/*.aseprite-extension
+demo/*.zip
+demo/probe.txt
+.aseprite-preview.png
+__pycache__/
+*.pyc

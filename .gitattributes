@@ -1,0 +1,4 @@
+# Shell scripts must check out with LF on every OS (bash rejects CRLF).
+*.sh text eol=lf
+# Lua extension ships verbatim into the Aseprite extensions dir.
+*.lua text eol=lf

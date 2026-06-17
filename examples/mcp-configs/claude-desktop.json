@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aseprite-live": {
+      "command": "C:\\path\\to\\aseprite_mcp.exe",
+      "env": {
+        "ASEPRITE_PATH": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Aseprite\\Aseprite.exe",
+        "ASEPRITE_MCP_LIVE_PORT": "9876"
+      }
+    }
+  }
+}
+
