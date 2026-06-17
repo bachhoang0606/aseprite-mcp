@@ -193,6 +193,14 @@ pub struct LiveSaveFilmstripParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveFrameDiffParams {
+    /// 1-based source frame number.
+    pub from_frame: u32,
+    /// 1-based target frame number.
+    pub to_frame: u32,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveCloseSpriteParams {
     pub filename: Option<String>,
     pub index: Option<u32>,
@@ -910,6 +918,79 @@ impl LiveBridge {
             "note": "frames are row-major (left→right, top→bottom); a gray gap separates cells",
         })
         .to_string())
+    }
+
+    /// Render frame `frame` to a temp 1x PNG (sets it active) and return the image.
+    /// Caller is responsible for restoring the original active frame.
+    async fn render_frame(&self, frame: u32) -> Result<image::RgbaImage, String> {
+        self.command("set_active_frame", None, Some(json!({ "frame": frame })))
+            .await?;
+        let temp = std::env::temp_dir().join(format!(
+            "aseprite_mcp_framediff_{}.png",
+            self.next_id.fetch_add(1, Ordering::Relaxed)
+        ));
+        let res = self
+            .command("save_preview", None, Some(json!({ "filename": temp.to_string_lossy() })))
+            .await
+            .and_then(|_| {
+                image::open(&temp)
+                    .map(|im| im.to_rgba8())
+                    .map_err(|e| live_error("frame_diff_decode_failed", &format!("{e}"), None))
+            });
+        let _ = std::fs::remove_file(&temp);
+        res
+    }
+
+    /// Diff two animation frames as a TEXT grid (`.`=unchanged, `-`=erased, else the
+    /// new colour's glyph). Lets the agent see EXACTLY where two frames differ at the
+    /// pixel level — verify an edit, or inspect motion between frames (Path 1 / §A).
+    /// Restores the user's active frame.
+    pub async fn frame_diff(&self, params: LiveFrameDiffParams) -> Result<String, String> {
+        let site: Value = serde_json::from_str(&self.command("get_active_site", None, None).await?)
+            .unwrap_or_else(|_| json!({}));
+        let frames = site
+            .get("sprite")
+            .and_then(|s| s.get("frames"))
+            .and_then(|f| f.as_u64())
+            .unwrap_or(0) as u32;
+        if frames == 0 {
+            return Err(live_error("no_sprite", "No active sprite to diff", None));
+        }
+        let orig = site.get("frame").and_then(|f| f.as_u64()).unwrap_or(1) as u32;
+        for (label, f) in [("from_frame", params.from_frame), ("to_frame", params.to_frame)] {
+            if f < 1 || f > frames {
+                return Err(live_error(
+                    "invalid_frame",
+                    &format!("{label} {f} out of range 1..={frames}"),
+                    None,
+                ));
+            }
+        }
+        if params.from_frame == params.to_frame {
+            return Err(live_error(
+                "same_frame",
+                "from_frame and to_frame must differ",
+                None,
+            ));
+        }
+
+        let a = self.render_frame(params.from_frame).await;
+        let b = match &a {
+            Ok(_) => self.render_frame(params.to_frame).await,
+            Err(_) => Err(String::new()),
+        };
+        // Restore the user's active frame regardless of outcome.
+        let _ = self
+            .command("set_active_frame", None, Some(json!({ "frame": orig })))
+            .await;
+        let (a, b) = (a?, b?);
+
+        let grid = crate::ascii_view::diff_to_ascii(&a, &b)
+            .map_err(|e| live_error("frame_diff_failed", &e, None))?;
+        Ok(format!(
+            "frame {} → {}\n{}",
+            params.from_frame, params.to_frame, grid
+        ))
     }
 
     pub async fn close_sprite(&self, params: LiveCloseSpriteParams) -> Result<String, String> {
@@ -2550,6 +2631,7 @@ mod tests {
             LiveSavePreviewParams,
             LiveAsciiViewParams,
             LiveSaveFilmstripParams,
+            LiveFrameDiffParams,
             LiveCloseSpriteParams,
             LiveResizeCanvasParams,
             LiveRect,

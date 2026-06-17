@@ -103,6 +103,98 @@ pub fn image_to_ascii(img: &RgbaImage) -> Result<String, String> {
     Ok(out)
 }
 
+/// Diff two same-size frames as a text grid: `.` = unchanged, `-` = became
+/// transparent, otherwise the glyph of the **new** colour at that cell (legend maps
+/// glyph → `#rrggbb` over the changed cells' colours). The header reports the
+/// changed-cell count. Lets the agent see EXACTLY what an edit changed, or where two
+/// animation frames differ at the pixel level (research Path 1 / §A).
+pub fn diff_to_ascii(a: &RgbaImage, b: &RgbaImage) -> Result<String, String> {
+    if a.dimensions() != b.dimensions() {
+        return Err(format!(
+            "frame sizes differ: {:?} vs {:?}",
+            a.dimensions(),
+            b.dimensions()
+        ));
+    }
+    let (w, h) = a.dimensions();
+    if w == 0 || h == 0 {
+        return Err("image has a zero dimension".to_string());
+    }
+    if w > ASCII_MAX_EDGE || h > ASCII_MAX_EDGE {
+        return Err(format!(
+            "{w}x{h} exceeds the {ASCII_MAX_EDGE}x{ASCII_MAX_EDGE} cap (each edge ≤ {ASCII_MAX_EDGE}); crop a region first"
+        ));
+    }
+
+    // Distinct NEW (frame-b) colours at changed cells, for the legend/glyphs.
+    let mut changed_colours: HashSet<[u8; 4]> = HashSet::new();
+    let mut changed = 0u32;
+    for y in 0..h {
+        for x in 0..w {
+            let (pa, pb) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
+            if pa != pb {
+                changed += 1;
+                if pb[3] != 0 {
+                    changed_colours.insert(pb);
+                }
+            }
+        }
+    }
+    let mut colours: Vec<[u8; 4]> = changed_colours.into_iter().collect();
+    colours.sort_by_key(|c| (luma(c), c[0], c[1], c[2], c[3]));
+    if colours.len() > GLYPHS.len() {
+        return Err(format!(
+            "{} changed colours exceeds the {}-glyph budget",
+            colours.len(),
+            GLYPHS.len()
+        ));
+    }
+    let glyph: HashMap<[u8; 4], char> = colours
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (*c, GLYPHS[i] as char))
+        .collect();
+
+    let row_w = (h.saturating_sub(1)).to_string().len().max(2);
+    let pad: String = " ".repeat(row_w + 1);
+    let digit = |d: u32| char::from_digit(d % 10, 10).unwrap();
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{w}x{h}  {changed} cells changed  '.'=unchanged '-'=erased\n"
+    ));
+    out.push_str(&pad);
+    for x in 0..w {
+        out.push(digit(x / 10));
+    }
+    out.push('\n');
+    out.push_str(&pad);
+    for x in 0..w {
+        out.push(digit(x));
+    }
+    out.push('\n');
+    for y in 0..h {
+        out.push_str(&format!("{:>width$} ", y, width = row_w));
+        for x in 0..w {
+            let (pa, pb) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
+            out.push(if pa == pb {
+                '.'
+            } else if pb[3] == 0 {
+                '-'
+            } else {
+                *glyph.get(&pb).unwrap()
+            });
+        }
+        out.push('\n');
+    }
+    out.push_str("legend(new):");
+    for (c, g) in colours.iter().zip(GLYPHS.iter()) {
+        out.push_str(&format!(" {}=#{:02x}{:02x}{:02x}", *g as char, c[0], c[1], c[2]));
+    }
+    out.push('\n');
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +247,40 @@ mod tests {
         let s = image_to_ascii(&img).unwrap();
         assert!(s.contains("legend:\n"), "empty legend:\n{s}");
         assert!(s.contains(" 0 ...\n"));
+    }
+
+    #[test]
+    fn diff_marks_changed_cells_with_the_new_glyph() {
+        let mut a = RgbaImage::from_pixel(2, 1, Rgba([0, 0, 0, 255]));
+        let mut b = a.clone();
+        b.put_pixel(1, 0, Rgba([255, 0, 0, 255])); // cell (1,0) black -> red
+        let _ = &mut a;
+        let s = diff_to_ascii(&a, &b).unwrap();
+        assert!(s.contains("1 cells changed"), "{s}");
+        assert!(s.contains(" 0 .0\n"), "unchanged '.' then new-colour glyph:\n{s}");
+        assert!(s.contains("legend(new): 0=#ff0000"), "{s}");
+    }
+
+    #[test]
+    fn diff_of_identical_frames_is_all_dots() {
+        let a = RgbaImage::from_pixel(3, 1, Rgba([1, 2, 3, 255]));
+        let s = diff_to_ascii(&a, &a).unwrap();
+        assert!(s.contains("0 cells changed"), "{s}");
+        assert!(s.contains(" 0 ...\n"), "{s}");
+    }
+
+    #[test]
+    fn diff_marks_erased_pixels_with_dash() {
+        let a = RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 255]));
+        let b = RgbaImage::new(1, 1); // became transparent
+        let s = diff_to_ascii(&a, &b).unwrap();
+        assert!(s.contains(" 0 -\n"), "erased cell is '-':\n{s}");
+    }
+
+    #[test]
+    fn diff_rejects_mismatched_sizes() {
+        let a = RgbaImage::new(2, 2);
+        let b = RgbaImage::new(3, 2);
+        assert!(diff_to_ascii(&a, &b).unwrap_err().contains("sizes differ"));
     }
 }

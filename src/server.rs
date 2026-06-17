@@ -211,6 +211,20 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "Diff two animation frames as a TEXT grid: '.' = unchanged, '-' = erased \
+            (became transparent), otherwise the glyph of the NEW colour at that cell (with a \
+            glyph→#rrggbb legend), plus a changed-cell count. Lets the agent see EXACTLY where two \
+            frames differ at the pixel level — verify what an edit changed, or inspect motion between \
+            frames. Pass 1-based `from_frame` and `to_frame`; the user's active frame is restored."
+    )]
+    async fn live_frame_diff(
+        &self,
+        params: Parameters<crate::live::LiveFrameDiffParams>,
+    ) -> Result<String, String> {
+        self.live.frame_diff(params.0).await
+    }
+
+    #[tool(
         description = "Close a sprite in the running Aseprite UI session by filename or 1-based index."
     )]
     async fn live_close_sprite(

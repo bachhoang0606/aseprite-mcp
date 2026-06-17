@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **`live_frame_diff` — pixel-level diff of two frames as a text grid (Perception
+  fast-follow, research Path 1).** Renders `from_frame` and `to_frame` (modal-free
+  `save_preview`, 1×) and emits a one-glyph-per-cell grid: `.` = unchanged, `-` =
+  erased (became transparent), otherwise the glyph of the **new** colour at that cell
+  (with a glyph→`#rrggbb` legend) plus a changed-cell count. Lets the agent see
+  EXACTLY what an edit changed, or where two animation frames differ at the pixel
+  level (the verify half of the draw→see→fix loop). Validates frames in range and that
+  they differ; restores the user's active frame. The pixels→diff transform is pure
+  Rust in `src/ascii_view.rs::diff_to_ascii` (4 unit tests); refuses grids > 64×64
+  (crop first). Live-verified on a 6-frame sprite (frame 1→3 = 131 changed cells,
+  correct grid + palette legend).
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three
   new `live_*` tools that make every colour operation legal by construction:
   `live_palette_snap` (snap a layer/selection's off-palette colours to the nearest

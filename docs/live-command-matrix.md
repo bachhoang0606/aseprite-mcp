@@ -22,6 +22,7 @@ builds; new command families are gated by `get_capabilities.features` (e.g.
 | Sprite | `save_copy_as` (+ Rust upscale) | `live_save_preview` | `filename`, `scale?` | source/scale/preview sizes | vision-legible preview (nearest-neighbor ~1024px) |
 | Sprite | `save_preview` (+ Rust pixels→text) | `live_ascii_view` | none | text grid + legend | token-space readback (1 glyph/pixel); ≤64×64 |
 | Sprite | per-frame `save_preview` (+ Rust compose) | `live_save_filmstrip` | `filename`, `scale?` | frames/cols/rows + strip size | all frames in one grid for animation review |
+| Sprite | two-frame `save_preview` (+ Rust diff) | `live_frame_diff` | `from_frame`, `to_frame` | diff text grid (changed-cell count + legend) | pixel-level diff of two frames; ≤64×64 |
 | Sprite | `close_sprite` | `live_close_sprite` | `filename` or `index`, `save?` | closed sprite | close temp sprite |
 | Sprite | `resize_canvas` | `live_resize_canvas` | `width`, `height` | sprite info | canvas temp sprite |
 | Layer | `list_layers` | `live_list_layers` | none | layer list | layer flow |
