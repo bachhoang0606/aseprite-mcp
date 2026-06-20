@@ -1,13 +1,15 @@
 # SPEC-005 — Perception fast-follow (gutter + region-crop + inline image + Set-of-Mark)
 
-- Status: **Phases 1–3 landed (2026-06-20)** — Phase 1: the gutter compositor
+- Status: **All phases landed (2026-06-20)** — Phase 1: the gutter compositor
   (`src/gutter.rs`) is wired onto `live_save_preview` via the pure `live::finish_preview`
   (on by default, exact coordinate inversion). Phase 2: region crop (`crop`:
   `"sprite"`/`"cel"`/`{x,y,width,height}`) — crop-then-scale + gutter labels in
   absolute sprite coords; offline-verified, `crop="cel"` pending a live plugin-reload
   verify. Phase 3: `inline:true` returns the PNG as an MCP `image/png` content block
-  (ADR-0007), path always present, byte-ceiling degrade. Phase 4 (Set-of-Mark) still
-  Draft (2026-06-17). Roadmap item #1
+  (ADR-0007), path always present, byte-ceiling degrade. Phase 4: `marks_from`
+  (`"slices"`/`"layers"`/`"components"`) overlays numbered Set-of-Mark badges + a
+  `marks:[{n,region,bbox}]` map (`src/marks.rs`, pure CC + badge compositor). Phase 5:
+  plugin bumped to 0.3.2 advertising `perception2`. Roadmap item #1
   ("Preview overhaul") fast-follow: the nearest-neighbor **upscale** already landed
   (`live_save_preview` + `src/preview.rs`); this spec ships the **remaining three
   legs** of that item — a **coordinate gutter**, **cel-bbox region crop**, and
@@ -178,6 +180,41 @@ badge at the region centroid in a neutral colour; the JSON returns
 pixel" and the orchestrator maps `3 → that slice/layer/cel` deterministically (§A
 SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
 
+**Phase 4 — implemented (2026-06-20).** `marks_from?: "slices"|"layers"|"components"` on
+`LiveSavePreviewParams`. New pure module `src/marks.rs`: `connected_components` (4-connected
+flood fill over opaque pixels, mirroring `tools/lint_sprite.py`'s opacity + 4-neighbour
+notion — the orphan check is the size-1 case), `assign_marks` (numbers regions 1..N; the
+inverse is `marks[n-1]`), and `draw_badge` (a numbered badge over a neutral backing box,
+clamped on-canvas), reusing the one shared bitmap font from `gutter.rs`. Decisions:
+- *No new plugin command.* `slices` reuses `list_slices` (has `bounds`); `layers` reuses
+  `list_cels` (position + image size = cel bbox) ∩ `list_layers` (visibility); `components`
+  is pure Rust on the rendered buffer. Pure parse helpers `parse_slice_regions` /
+  `parse_layer_regions` / `visible_layer_names` are unit-tested.
+- *Effective visibility, not the local flag.* `visible_layer_names` ANDs each layer's
+  `isVisible` with its ancestor groups' (a layer inside a hidden group is not rendered, so
+  it is not marked) and returns `Option` — `None` (visibility unparseable) declines to
+  filter, `Some(∅)` (everything hidden) genuinely emits no layer marks. Duplicate layer
+  names get disambiguated output names (`Body`, `Body #2`) so the map stays 1:1.
+- *Marks compose after the gutter, in absolute source coords.* `finish_preview` filters
+  regions to the crop window THEN numbers them (so every emitted mark has a visible badge
+  and numbering is contiguous — a slice outside a cel crop gets neither badge nor orphan
+  number), draws each badge at `band + (centroid − crop)·scale`, and returns
+  `marks:[{n, region, bbox(source)}]` (present even when empty: "requested, none found").
+  Components run CC at SOURCE resolution — reconstructed from the bare pre-gutter buffer by
+  sampling one px per upscale block (`downsample_by_scale`, exact), so CC never touches the
+  up-to-67M-px upscaled buffer and bboxes are source-space directly.
+- *Badge colour + count.* Badges reuse `gutter::pick_label_color` (off-palette) over a
+  `BAND_BG` box so they read on any art (§A red-on-red); a `MAX_MARKS` (64) cap keeps the
+  largest regions and reports the true total in `marks_truncated` so a noisy sprite can't
+  bury the art in overlapping badges.
+
+**Phase 5 — capability advertisement (2026-06-20).** Plugin bumped `0.3.1 → 0.3.2` and
+`FEATURES += "perception2"`. Across all four phases the *only* plugin change is the Phase-2
+`cel.bounds` field in `save_preview`; the gutter / crop-math / inline / marks features are
+server-side and need no plugin support. So `perception2` advertises exactly "this plugin
+reports `cel.bounds`, so `crop="cel"` works" — a client checks the one flag; everything else
+degrades loudly on an old plugin (ADR-0005) rather than being gated.
+
 ### Decisions (candidate ADR-0007)
 1. **Inline image is opt-in, path always present.** Default stays path-returning (the
    auto-preview hook and non-vision clients rely on it); `inline=true` adds an image
@@ -223,12 +260,19 @@ SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
       `LiveSavePreviewParams`) and the crate is clippy-clean. `live_save_preview` returns
       `Result<CallToolResult, McpError>` ([ADR-0007](../docs/adr/0007-inline-image-content.md)).
       89 unit tests pass.
-- [ ] Phase 4: `marks_from=slices` on a sliced sprite returns one mark per slice with
-      correct centroid + bbox and a mark→name map; badge colour is neutral; the
-      mark→region inversion is exact (unit-tested on a synthetic layout).
-- [ ] `live_get_capabilities` advertises the new capability
-      (`features += ["perception2"]` or similar, plugin version bump); old plugins
-      reject any new plugin command per-command (ADR-0005).
+- [x] Phase 4: `marks_from` returns one mark per region (`slices`/`layers`/`components`)
+      with correct centroid + bbox and a mark→name map; badge colour is neutral
+      (`pick_label_color` over `BAND_BG`); the mark→region inversion is exact. Unit-tested
+      on synthetic layouts: `connected_components` (disjoint blobs, 4-connectivity, L-merge,
+      empty), `assign_marks` numbering + inversion, `draw_badge` in-bounds + clamp, the
+      `parse_slice_regions`/`parse_layer_regions`/`buffer_rect_to_source` helpers, and
+      `finish_preview` marks-in-JSON for both components and crop-window-filtered regions.
+      No new plugin command (reuses `list_slices`/`list_cels`/`list_layers`). 103 unit tests
+      pass; clippy adds no new lints. **Live-verify pending a plugin reload.**
+- [x] `live_get_capabilities` advertises the new capability — plugin bumped `0.3.1 → 0.3.2`,
+      `FEATURES += "perception2"`. Across all phases the only plugin change is the Phase-2
+      `cel.bounds` field, so `perception2` means "`crop="cel"` works"; the rest is server-
+      side and degrades loudly on an old plugin (ADR-0005), with nothing new to gate.
 
 ## Eval (how we grade it)
 - **Deterministic (Tier-A, no Aseprite):** gutter tick-position + coordinate-inversion
@@ -240,12 +284,15 @@ SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
   whole point), logged in `evals/RESULTS.md`.
 
 ## Traceability
-- Module(s): `src/preview.rs` (crop + gutter compositor; reuses `auto_preview_scale` /
-  `render_preview` / nearest upscale) + a small bitmap-font/overlay helper; SoM
-  centroid/CC math pure Rust (reuses `tools/lint_sprite.py` CC notion); `src/live.rs`
-  live methods + `src/server.rs` `live_*` tools (Phase 3 changes one tool's return
-  type to image content); `plugin.lua` gains a `cel.bounds` read for Phase 2 and a
-  slice/layer enumeration for Phase 4 (both read-only). Pairs with `live_frame_diff`
-  (PR #19) and `pixel-critic` for the see→locate→fix loop.
-- Test(s): `src/preview.rs::tests` (gutter, crop, inversion), new SoM tests; live
-  Tier-B coordinate-naming run judged on named-coord-matches-defect.
+- Module(s): `src/preview.rs` (crop + nearest upscale + inline-PNG helper), `src/gutter.rs`
+  (gutter compositor + shared bitmap font), `src/marks.rs` (SoM centroid/CC math, reuses
+  `tools/lint_sprite.py`'s opacity + 4-neighbour CC notion); `src/live.rs` live methods +
+  `src/server.rs` `live_*` tools (Phase 3 changes `live_save_preview`'s return type to image
+  content). `plugin.lua` gains exactly one read-only field across SPEC-005 — the active
+  cel's `bounds` in `save_preview` (Phase 2, for `crop="cel"`); **Phase-4 marks add NO new
+  plugin command** (they reuse the existing `list_slices` / `list_cels` / `list_layers`
+  reads). Pairs with `live_frame_diff` and `pixel-critic` for the see→locate→fix loop.
+- Test(s): `src/preview.rs::tests` (scale/crop/inline), `src/gutter.rs::tests` (gutter,
+  inversion, label floor), `src/marks.rs::tests` (CC, numbering, badge), `src/live.rs::tests`
+  (`finish_preview` gutter/crop/marks wiring, region/visibility parsing); live Tier-B
+  coordinate-naming run judged on named-coord-matches-defect.

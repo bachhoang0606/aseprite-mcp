@@ -7,12 +7,16 @@
 
 local PROTOCOL = "aseprite-live-edit"
 local VERSION = 1
-local PLUGIN_VERSION = "0.3.1"
+local PLUGIN_VERSION = "0.3.2"
 -- Optional capability flags advertised via get_capabilities. The wire protocol
 -- VERSION stays 1 (existing commands keep working across plugin builds); new
 -- command families like tilemaps are gated by feature flags + the loud
 -- "unsupported_command" reply older plugins give, not by a breaking version bump.
-local FEATURES = { "tilemap", "color_ops" }
+-- "perception2" (SPEC-005): this build reports the active cel's `bounds` in
+-- save_preview, so the server's crop="cel" preview works; the gutter / region-crop /
+-- inline-image / Set-of-Mark perception features are otherwise server-side and need no
+-- plugin support, so a client can check this one flag to know crop="cel" is available.
+local FEATURES = { "tilemap", "color_ops", "perception2" }
 
 local CONFIG = {
     host = "127.0.0.1",
