@@ -40,6 +40,31 @@
   helpers `live::finish_preview` + `gutter::sprite_palette` unit-tested (transparent
   art, explicit-require success/refusal, default degrade, write-failure, label-overlap
   refusal). No plugin change — works with any connected plugin version.
+- **SPEC-005 Phase 2 — `live_save_preview` region crop (`crop`).** Focus the upscale
+  budget on the subject: `crop:"sprite"` (whole canvas, default), `crop:"cel"` (the
+  active cel's bbox — a 16×16 cel on a 256×256 canvas now fills ~1024px instead of
+  ~64px), or `crop:{x,y,width,height}`. `render_preview_buffer` clamps the rect, crops
+  the decoded RGBA, then auto-scales on the **crop's** long edge; `PreviewInfo` gains
+  `crop_x/crop_y` and the sidecar a `crop:{x,y}`. The gutter draws labels in **absolute**
+  sprite coordinates (`gutter::render_with_gutter_at`, origin = crop), so the agent reads
+  the real (x,y) with no arithmetic. `crop:"cel"` resolves from a new read-only `cel`
+  bounds field the plugin reports in `save_preview`; an empty cel or an old plugin is a
+  loud `cel_bounds_unavailable` degrade (never a silent guess). Pure crop/validation
+  helpers unit-tested (`clamp_crop`, `resolve_crop_plan`, `rect_to_crop`,
+  `cel_crop_from_response`, crop-then-scale, full-crop no-regression, absolute-label
+  origin). 87 unit tests pass; clippy adds no new lints. (Live-verify of `crop:"cel"`
+  pending a plugin reload.)
+- **SPEC-005 Phase 3 — `live_save_preview` optional inline image return (`inline`,
+  [ADR-0007](docs/adr/0007-inline-image-content.md)).** `inline:true` returns the PNG as
+  an MCP `image/png` content block (base64) so a vision client sees the pixels directly,
+  not just a path — the first tool in the crate to emit image content (`live_save_preview`
+  now returns `Result<CallToolResult, McpError>`). The path is always present too, so the
+  auto-preview hook and non-vision clients are unchanged (the no-inline wire shape is
+  byte-identical). A preview over the 1 MiB ceiling degrades to path + a text note rather
+  than blowing the context budget. Pure `preview::read_inline_png` → `InlinePng::{Ready,
+  TooLarge}` + a hand-rolled RFC 4648 `base64_encode` (no new dependency); unit-tested
+  (known-vector encode, round-trip decode to dimensions, size-guard). 89 unit tests pass;
+  clippy adds no new lints.
 
   [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three

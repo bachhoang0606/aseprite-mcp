@@ -187,6 +187,29 @@ pub struct LiveSavePreviewParams {
     pub gutter: Option<bool>,
     /// Source-px between gutter ticks (default 8). Ignored when `gutter` is `false`.
     pub gutter_step: Option<u32>,
+    /// Region to preview, so the upscale budget lands on the subject (SPEC-005
+    /// Phase 2): `"sprite"` (whole canvas, default), `"cel"` (the active cel's bbox —
+    /// a small cel on a big canvas then fills ~1024px instead of a few), or an explicit
+    /// `{ "x", "y", "width", "height" }` rectangle in sprite coordinates. The crop
+    /// origin is reported back (`crop`) and the gutter labels read absolute sprite
+    /// coordinates, so any (x,y) still inverts exactly.
+    pub crop: Option<LiveCrop>,
+    /// Also return the PNG as an inline image-content block (base64 `image/png`) so a
+    /// vision client sees the pixels directly, not just a path (SPEC-005 Phase 3). The
+    /// path is always present too. A preview larger than the byte ceiling degrades to
+    /// path-only with a note, so a huge sheet can't blow the context budget.
+    pub inline: Option<bool>,
+}
+
+/// `crop` selector for `live_save_preview`: a mode string (`"cel"` / `"sprite"`) or
+/// an explicit source-space rectangle.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum LiveCrop {
+    /// `"cel"` (active cel bbox) or `"sprite"` (whole canvas — the default).
+    Mode(String),
+    /// Explicit pixel rectangle `{x, y, width, height}` in sprite coordinates.
+    Rect(LiveRect),
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -222,7 +245,7 @@ pub struct LiveResizeCanvasParams {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct LiveRect {
     pub x: i32,
     pub y: i32,
@@ -769,6 +792,9 @@ impl LiveBridge {
     /// never touched, so this adds no undo entries and needs no plugin redeploy.
     pub async fn save_preview(&self, params: LiveSavePreviewParams) -> Result<String, String> {
         validate_preview_request(&params.filename, params.scale)?;
+        // Resolve (and validate) the crop selector up front — an explicit bad rect or
+        // an unknown mode fails fast, before the bridge round-trip.
+        let plan = resolve_crop_plan(&params.crop)?;
 
         // 1) Render the active frame to a single-frame PNG in the system temp dir
         // (NOT the user's project tree), so a hard crash between save and cleanup
@@ -776,17 +802,25 @@ impl LiveBridge {
         // distinct. The plugin's `save_preview` renders the active frame into a
         // standalone Image and Image:saveAs's it — this is modal-free even on a
         // multi-frame sprite (ADR-0004), unlike `save_copy_as`/saveCopyAs which
-        // pops Aseprite's "format doesn't support multiple frames" dialog.
+        // pops Aseprite's "format doesn't support multiple frames" dialog. The same
+        // response also carries the active cel's bounds (for crop="cel").
         let temp = std::env::temp_dir().join(format!(
             "aseprite_mcp_preview_{}.png",
             self.next_id.fetch_add(1, Ordering::Relaxed)
         ));
         let temp_str = temp.to_string_lossy().to_string();
-        self.command("save_preview", None, Some(json!({ "filename": temp_str })))
+        let resp = self
+            .command("save_preview", None, Some(json!({ "filename": temp_str })))
             .await?;
 
-        // 2) Upscale in-process to a buffer; clean up the temp regardless of outcome.
-        let rendered = crate::preview::render_preview_buffer(&temp, params.scale);
+        // 2) Resolve the crop rect (crop="cel" needs the plugin's reported bounds), then
+        //    upscale in-process to a buffer; clean up the temp regardless of outcome.
+        let crop = match plan {
+            CropPlan::Whole => None,
+            CropPlan::Explicit(c) => Some(c),
+            CropPlan::Cel => Some(cel_crop_from_response(&resp)?),
+        };
+        let rendered = crate::preview::render_preview_buffer(&temp, params.scale, crop);
         let _ = std::fs::remove_file(&temp);
         let (buffer, info) = rendered.map_err(|e| live_error("preview_render_failed", &e, None))?;
 
@@ -2422,6 +2456,102 @@ fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), St
     Ok(())
 }
 
+/// What region a preview should cover, after validating the `crop` selector but before
+/// the bridge round-trip. `Cel` is resolved later from the plugin's reported bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CropPlan {
+    Whole,
+    Cel,
+    Explicit(crate::preview::Crop),
+}
+
+/// Validate the `crop` selector and turn it into a [`CropPlan`] (SPEC-005 Phase 2).
+/// Pure — unit-tested without the bridge. `"sprite"`/absent = whole canvas; `"cel"` =
+/// defer to the active cel's bounds; an explicit rect is validated here.
+fn resolve_crop_plan(crop: &Option<LiveCrop>) -> Result<CropPlan, String> {
+    match crop {
+        None => Ok(CropPlan::Whole),
+        Some(LiveCrop::Mode(m)) => match m.as_str() {
+            "sprite" => Ok(CropPlan::Whole),
+            "cel" => Ok(CropPlan::Cel),
+            other => Err(live_error(
+                "invalid_crop",
+                &format!(
+                    "crop must be \"cel\", \"sprite\", or {{x,y,width,height}} (got \"{other}\")"
+                ),
+                None,
+            )),
+        },
+        Some(LiveCrop::Rect(r)) => Ok(CropPlan::Explicit(rect_to_crop(r)?)),
+    }
+}
+
+/// Validate an explicit crop rectangle and convert it to a [`crate::preview::Crop`]
+/// (non-negative origin, positive size). Far-edge clamping happens in `preview`.
+fn rect_to_crop(r: &LiveRect) -> Result<crate::preview::Crop, String> {
+    if r.x < 0 || r.y < 0 {
+        return Err(live_error(
+            "invalid_crop",
+            &format!("crop origin ({},{}) must be non-negative", r.x, r.y),
+            None,
+        ));
+    }
+    if r.width == 0 || r.height == 0 {
+        return Err(live_error(
+            "invalid_crop",
+            "crop width and height must be positive",
+            None,
+        ));
+    }
+    Ok(crate::preview::Crop {
+        x: r.x as u32,
+        y: r.y as u32,
+        width: r.width,
+        height: r.height,
+    })
+}
+
+/// Build a crop from the active cel's bounds in a `save_preview` response (SPEC-005
+/// Phase 2). A negative cel origin is clamped to the canvas (reducing the size). Absent
+/// bounds — an empty active layer/frame, or a plugin that predates the report — is a
+/// loud degrade (ADR-0005), never a silent guess. Pure → unit-tested.
+fn cel_crop_from_response(resp: &str) -> Result<crate::preview::Crop, String> {
+    let v: Value = serde_json::from_str(resp).unwrap_or(Value::Null);
+    let cel = match v.get("cel") {
+        Some(c) if c.is_object() => c,
+        _ => {
+            return Err(live_error(
+                "cel_bounds_unavailable",
+                "crop=\"cel\" needs the active cel's bounds, but none were reported — the \
+                 active layer/frame may be empty, or the connected Aseprite plugin predates \
+                 cel-bounds reporting. Use crop:\"sprite\", an explicit {x,y,width,height}, or \
+                 select a non-empty cel.",
+                None,
+            ));
+        }
+    };
+    let field = |k: &str| cel.get(k).and_then(|n| n.as_i64()).unwrap_or(0);
+    let (gx, gy, cw, ch) = (field("x"), field("y"), field("width"), field("height"));
+    // Clamp a negative origin to the canvas, shrinking the size to the visible part.
+    let x0 = gx.max(0);
+    let y0 = gy.max(0);
+    let w = gx + cw - x0;
+    let h = gy + ch - y0;
+    if w <= 0 || h <= 0 {
+        return Err(live_error(
+            "cel_bounds_unavailable",
+            "the active cel has no visible area on the canvas to crop to",
+            None,
+        ));
+    }
+    Ok(crate::preview::Crop {
+        x: x0 as u32,
+        y: y0 as u32,
+        width: w as u32,
+        height: h as u32,
+    })
+}
+
 /// Composite the optional coordinate gutter onto the upscaled preview `buffer`,
 /// write the PNG to `dst`, and build the result JSON (SPEC-005 Phase 1). Pure
 /// (buffer-in / path-out, no bridge) so the gutter policy — default-on-when-legible,
@@ -2446,7 +2576,16 @@ fn finish_preview(
         buffer
     } else {
         let palette = crate::gutter::sprite_palette(&buffer, info.scale);
-        match crate::gutter::render_with_gutter(&buffer, info.scale, step, &palette) {
+        // Labels read ABSOLUTE sprite coords (offset by the crop origin), so an agent
+        // reads the real (x,y) off the gutter even on a cropped preview.
+        match crate::gutter::render_with_gutter_at(
+            &buffer,
+            info.scale,
+            step,
+            info.crop_x,
+            info.crop_y,
+            &palette,
+        ) {
             Ok((composited, gi)) => {
                 gutter_json = json!({
                     "left_w": gi.left_w,
@@ -2479,13 +2618,15 @@ fn finish_preview(
         })?;
 
     // `gutter_applied` is the machine-readable signal an orchestrator checks before
-    // inverting a coordinate: true -> source = (preview - {left_w,top_h}) / scale;
-    // false (suppressed or degraded) -> the file is the bare art, source = preview / scale.
+    // inverting a coordinate: true -> source = crop.{x,y} + (preview - {left_w,top_h}) /
+    // scale; false (suppressed/degraded) -> the bare art, source = crop.{x,y} + preview /
+    // scale. `crop` is the previewed region's origin (0,0 uncropped); `source` is its size.
     let mut out = json!({
         "changed": true,
         "filename": dst,
         "scale": info.scale,
         "source": { "width": info.source_width, "height": info.source_height },
+        "crop": { "x": info.crop_x, "y": info.crop_y },
         "preview": { "width": info.preview_width, "height": info.preview_height },
         "gutter_applied": !gutter_json.is_null(),
     });
@@ -2524,6 +2665,8 @@ mod tests {
             scale,
             preview_width: pw,
             preview_height: ph,
+            crop_x: 0,
+            crop_y: 0,
         };
         (buf, info)
     }
@@ -2628,6 +2771,8 @@ mod tests {
             scale: 16,
             preview_width: 64,
             preview_height: 64,
+            crop_x: 0,
+            crop_y: 0,
         };
         let dst = unique_preview_path("transparent");
         let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None).unwrap();
@@ -2647,6 +2792,47 @@ mod tests {
             .join("out.png");
         let err = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None).unwrap_err();
         assert!(err.contains("preview_render_failed"), "got: {err}");
+    }
+
+    // ---- crop resolution (SPEC-005 Phase 2) -------------------------------------
+
+    #[test]
+    fn resolve_crop_plan_handles_modes_and_rects() {
+        use crate::preview::Crop;
+        assert_eq!(resolve_crop_plan(&None).unwrap(), CropPlan::Whole);
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Mode("sprite".into()))).unwrap(),
+            CropPlan::Whole
+        );
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Mode("cel".into()))).unwrap(),
+            CropPlan::Cel
+        );
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: 4, y: 6, width: 8, height: 9 }))).unwrap(),
+            CropPlan::Explicit(Crop { x: 4, y: 6, width: 8, height: 9 })
+        );
+        // Unknown mode + negative origin + zero size all rejected with invalid_crop.
+        assert!(resolve_crop_plan(&Some(LiveCrop::Mode("frame".into()))).unwrap_err().contains("invalid_crop"));
+        assert!(resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: -1, y: 0, width: 4, height: 4 }))).unwrap_err().contains("invalid_crop"));
+        assert!(resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: 0, y: 0, width: 0, height: 4 }))).unwrap_err().contains("invalid_crop"));
+    }
+
+    #[test]
+    fn cel_crop_from_response_parses_clamps_and_degrades() {
+        use crate::preview::Crop;
+        // Normal bounds map straight through.
+        let r = json!({ "changed": true, "cel": { "x": 12, "y": 8, "width": 16, "height": 20 } }).to_string();
+        assert_eq!(cel_crop_from_response(&r).unwrap(), Crop { x: 12, y: 8, width: 16, height: 20 });
+        // A negative origin clamps to the canvas, shrinking the size to the visible part.
+        let r = json!({ "cel": { "x": -5, "y": 0, "width": 20, "height": 10 } }).to_string();
+        assert_eq!(cel_crop_from_response(&r).unwrap(), Crop { x: 0, y: 0, width: 15, height: 10 });
+        // No cel reported (old plugin or empty layer) -> loud degrade, not a guess.
+        let r = json!({ "changed": true, "width": 64, "height": 64 }).to_string();
+        assert!(cel_crop_from_response(&r).unwrap_err().contains("cel_bounds_unavailable"));
+        // A cel entirely off-canvas has no visible area.
+        let r = json!({ "cel": { "x": -30, "y": 0, "width": 10, "height": 10 } }).to_string();
+        assert!(cel_crop_from_response(&r).unwrap_err().contains("cel_bounds_unavailable"));
     }
 
     #[test]

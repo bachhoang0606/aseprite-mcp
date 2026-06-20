@@ -720,13 +720,21 @@ local function handle_save_preview(cmd)
     local img = Image(spr.width, spr.height, ColorMode.RGB)
     img:drawSprite(spr, frame_number)
     img:saveAs(filename)
-    return ok_response(cmd.id, {
+    local resp = {
         changed = true,
         filename = filename,
         frame = frame_number,
         width = img.width,
         height = img.height,
-    })
+    }
+    -- SPEC-005 Phase 2: report the active cel's bounds (read-only) so the server can
+    -- crop the preview to the subject (crop="cel"). Absent when the active layer/frame
+    -- has no cel; the server then degrades loudly rather than guessing a region.
+    if app.cel then
+        local b = app.cel.bounds
+        resp.cel = { x = b.x, y = b.y, width = b.width, height = b.height }
+    end
+    return ok_response(cmd.id, resp)
 end
 
 local function handle_close_sprite(cmd)
