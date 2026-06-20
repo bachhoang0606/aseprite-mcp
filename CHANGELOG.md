@@ -17,6 +17,31 @@
   tests). **No new dependency**; source-size guard reads dimensions before decode so a huge
   PNG can't OOM; PNG-only input + Sobel grid auto-detect / auto-palette are SPEC-006 Phase 2.
   83 unit tests pass; clippy adds no new lints.
+- **SPEC-005 Phase 4 — `live_save_preview` Set-of-Mark numbered regions (`marks_from`).**
+  Overlay numbered badges on regions and return a `marks:[{n, region, bbox}]` map so the
+  critic can say "region 3 has a stray pixel" and the orchestrator maps `3 → that
+  slice/layer/blob` — no fragile free-form coordinates (research §A SoM). `marks_from`:
+  `"slices"` (one per named slice), `"layers"` (one per visible layer's cel at the active
+  frame), or `"components"` (one per 4-connected opaque blob). New pure `src/marks.rs`:
+  `connected_components` (iterative flood fill mirroring `tools/lint_sprite.py`'s opacity +
+  4-neighbour notion), `assign_marks` (numbers 1..N; inverse is `marks[n-1]`), `draw_badge`
+  (numbered badge over a neutral box, clamped on-canvas), reusing the one shared bitmap font
+  from `gutter.rs`. No new plugin command — `slices`/`layers` reuse `list_slices`/`list_cels`
+  ∩ `list_layers`; `components` is pure Rust. Layer visibility honours **effective** group
+  visibility (a layer in a hidden group isn't marked) and disambiguates duplicate layer
+  names (`Body`, `Body #2`); `components` runs CC at source resolution (reconstructed from
+  the upscaled buffer, so it never touches the up-to-67M-px buffer); a `MAX_MARKS` cap keeps
+  the largest regions and reports the total in `marks_truncated`. `finish_preview` filters
+  regions to the crop window then numbers them (every mark has a visible badge, contiguous
+  numbering) and draws each at `band + (centroid − crop)·scale`, returning `marks` even when
+  empty ("requested, none found"). Unit-tested (CC disjoint/L-merge/empty, mark numbering +
+  inversion, badge bounds/clamp, slice/layer parse, group-visibility, duplicate names,
+  crop-window filter under a non-zero crop, marks-over-an-applied-gutter-band, truncation).
+  112 unit tests pass; clippy adds no new lints.
+- **SPEC-005 Phase 5 — plugin `0.3.2` advertises `perception2`.** The only plugin change
+  across SPEC-005 is the Phase-2 `cel.bounds` report in `save_preview`, so the new
+  `perception2` feature flag means "`crop="cel"` works"; the gutter / crop-math / inline /
+  marks features are server-side and degrade loudly on an old plugin rather than being gated.
 - **`live_frame_diff` — pixel-level diff of two frames as a text grid (Perception
   fast-follow, research Path 1).** Renders `from_frame` and `to_frame` (modal-free
   `save_preview`, 1×) and emits a one-glyph-per-cell grid: `.` = unchanged, `-` =
@@ -39,7 +64,46 @@
   **inverts back to an exact source coordinate** for `live_draw_pixels`. Refuses a
   tick density below the legibility floor (`step × scale < 24px`). **7 unit tests**
   (inversion identity, off-palette pick, density refusal, byte-faithful art blit).
-  Wiring it onto `live_save_preview` is SPEC-005 Phase 2/3. See SPEC-005 / research §A.
+  See SPEC-005 / research §A.
+- **SPEC-005 Phase 1 — gutter wired onto `live_save_preview` (on by default).** The
+  preview is upscaled to an in-memory buffer (`preview::render_preview_buffer`), then —
+  whenever the tick spacing is legible at the chosen scale — composited with the
+  coordinate gutter before the PNG is written. New `gutter` / `gutter_step` options:
+  `gutter:false` suppresses it, `gutter:true` requires it (loud `gutter_unreadable`
+  refusal if illegible), and the default quietly degrades to a plain preview with a
+  `gutter_skipped` note. The result JSON gains `gutter_applied` plus a `gutter`
+  `{left_w, top_h, step, image}` sidecar so any (x,y) read off the preview inverts
+  exactly (`source = (preview − {left_w,top_h}) / scale`). The legibility floor now
+  also rejects spacings where multi-digit labels would overlap, and the label colour
+  is steered off the sprite's own sampled colours (`gutter::sprite_palette`). Pure
+  helpers `live::finish_preview` + `gutter::sprite_palette` unit-tested (transparent
+  art, explicit-require success/refusal, default degrade, write-failure, label-overlap
+  refusal). No plugin change — works with any connected plugin version.
+- **SPEC-005 Phase 2 — `live_save_preview` region crop (`crop`).** Focus the upscale
+  budget on the subject: `crop:"sprite"` (whole canvas, default), `crop:"cel"` (the
+  active cel's bbox — a 16×16 cel on a 256×256 canvas now fills ~1024px instead of
+  ~64px), or `crop:{x,y,width,height}`. `render_preview_buffer` clamps the rect, crops
+  the decoded RGBA, then auto-scales on the **crop's** long edge; `PreviewInfo` gains
+  `crop_x/crop_y` and the sidecar a `crop:{x,y}`. The gutter draws labels in **absolute**
+  sprite coordinates (`gutter::render_with_gutter_at`, origin = crop), so the agent reads
+  the real (x,y) with no arithmetic. `crop:"cel"` resolves from a new read-only `cel`
+  bounds field the plugin reports in `save_preview`; an empty cel or an old plugin is a
+  loud `cel_bounds_unavailable` degrade (never a silent guess). Pure crop/validation
+  helpers unit-tested (`clamp_crop`, `resolve_crop_plan`, `rect_to_crop`,
+  `cel_crop_from_response`, crop-then-scale, full-crop no-regression, absolute-label
+  origin). 87 unit tests pass; clippy adds no new lints. (Live-verify of `crop:"cel"`
+  pending a plugin reload.)
+- **SPEC-005 Phase 3 — `live_save_preview` optional inline image return (`inline`,
+  [ADR-0007](docs/adr/0007-inline-image-content.md)).** `inline:true` returns the PNG as
+  an MCP `image/png` content block (base64) so a vision client sees the pixels directly,
+  not just a path — the first tool in the crate to emit image content (`live_save_preview`
+  now returns `Result<CallToolResult, McpError>`). The path is always present too, so the
+  auto-preview hook and non-vision clients are unchanged (the no-inline wire shape is
+  byte-identical). A preview over the 1 MiB ceiling degrades to path + a text note rather
+  than blowing the context budget. Pure `preview::read_inline_png` → `InlinePng::{Ready,
+  TooLarge}` + a hand-rolled RFC 4648 `base64_encode` (no new dependency); unit-tested
+  (known-vector encode, round-trip decode to dimensions, size-guard). 89 unit tests pass;
+  clippy adds no new lints.
 
   [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three

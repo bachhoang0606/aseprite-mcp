@@ -24,7 +24,11 @@ pub const PREVIEW_MAX_SCALE: u32 = 16;
 pub const PREVIEW_MAX_EDGE: u32 = 8192;
 
 /// What `render_preview` did, surfaced to the caller (and the agent) so it knows
-/// the mapping between preview pixels and real sprite coordinates.
+/// the mapping between preview pixels and real sprite coordinates. `source_*` are the
+/// dimensions of the **previewed region** (the crop, or the whole sprite when
+/// uncropped); `crop_x`/`crop_y` are that region's origin in full-sprite coordinates
+/// (0,0 uncropped) so a preview pixel inverts to a real sprite (x,y) exactly:
+/// `source_x = crop_x + (preview_x − gutter_left_w) / scale`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreviewInfo {
     pub source_width: u32,
@@ -32,6 +36,39 @@ pub struct PreviewInfo {
     pub scale: u32,
     pub preview_width: u32,
     pub preview_height: u32,
+    pub crop_x: u32,
+    pub crop_y: u32,
+}
+
+/// A source-space crop rectangle (Phase 2 region crop). `width`/`height` are clamped
+/// to the image by [`clamp_crop`]; a fully out-of-bounds rect is an error there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crop {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Clamp `crop` to the `[0,img_w) × [0,img_h)` canvas, returning the in-bounds
+/// `(x, y, w, h)` — or an error if the origin lies outside the image or nothing
+/// remains after clamping. Pure so the crop math is unit-tested without a PNG.
+pub fn clamp_crop(img_w: u32, img_h: u32, crop: Crop) -> Result<(u32, u32, u32, u32), String> {
+    if crop.x >= img_w || crop.y >= img_h {
+        return Err(format!(
+            "crop origin ({},{}) is outside the {img_w}x{img_h} preview",
+            crop.x, crop.y
+        ));
+    }
+    let w = crop.width.min(img_w - crop.x);
+    let h = crop.height.min(img_h - crop.y);
+    if w == 0 || h == 0 {
+        return Err(format!(
+            "crop {}x{} at ({},{}) has a zero dimension after clamping to {img_w}x{img_h}",
+            crop.width, crop.height, crop.x, crop.y
+        ));
+    }
+    Ok((crop.x, crop.y, w, h))
 }
 
 /// Pick an integer upscale factor so the sprite's long edge lands near
@@ -51,6 +88,112 @@ pub fn clamp_scale_to_max_edge(width: u32, height: u32, scale: u32) -> u32 {
     scale.clamp(1, max_by_edge)
 }
 
+/// Decode the PNG at `src` and nearest-neighbor upscale it by `requested_scale`
+/// (or [`auto_preview_scale`] when `None`) into an **in-memory** RGBA buffer (no
+/// file write), returning the buffer + the chosen [`PreviewInfo`]. Callers that
+/// want to composite annotations (a coordinate gutter, Set-of-Mark badges) onto
+/// the upscaled art *before* writing use this; [`render_preview`] is this plus a
+/// PNG write. Pure (file-in / buffer-out) so it stays unit-testable without Aseprite.
+pub fn render_preview_buffer(
+    src: &Path,
+    requested_scale: Option<u32>,
+    crop: Option<Crop>,
+) -> Result<(image::RgbaImage, PreviewInfo), String> {
+    let img = image::open(src)
+        .map_err(|e| format!("failed to decode preview source {}: {e}", src.display()))?;
+    let (full_w, full_h) = (img.width(), img.height());
+    if full_w == 0 || full_h == 0 {
+        return Err(format!("preview source has a zero dimension ({full_w}x{full_h})"));
+    }
+    let rgba = img.to_rgba8();
+
+    // Crop to the subject first (Phase 2) so the upscale budget lands on the crop's
+    // long edge — a 16×16 cel on a 256×256 canvas fills ~1024px, not ~64px. A full-
+    // canvas crop short-circuits to the uncropped buffer so `crop="sprite"` is byte-
+    // for-byte today's output (no regression).
+    let (crop_x, crop_y, w, h) = match crop {
+        Some(c) => clamp_crop(full_w, full_h, c)?,
+        None => (0, 0, full_w, full_h),
+    };
+    let base = if crop_x == 0 && crop_y == 0 && w == full_w && h == full_h {
+        rgba
+    } else {
+        image::imageops::crop_imm(&rgba, crop_x, crop_y, w, h).to_image()
+    };
+
+    let scale = requested_scale
+        .map(|s| s.max(1))
+        .unwrap_or_else(|| auto_preview_scale(w, h));
+    let scale = clamp_scale_to_max_edge(w, h, scale);
+
+    let out = if scale == 1 {
+        base
+    } else {
+        image::imageops::resize(&base, w * scale, h * scale, image::imageops::FilterType::Nearest)
+    };
+
+    Ok((
+        out,
+        PreviewInfo {
+            source_width: w,
+            source_height: h,
+            scale,
+            preview_width: w * scale,
+            preview_height: h * scale,
+            crop_x,
+            crop_y,
+        },
+    ))
+}
+
+/// Byte ceiling for the inline MCP image-content return (SPEC-005 Phase 3 / ADR-0007):
+/// a PNG larger than this degrades to a path + note rather than base64-inlining it, so
+/// a big sheet can't blow the model's context budget. 1 MiB of PNG ≈ ~1.4 MiB base64 —
+/// generous for an upscaled pixel-art preview, which is usually tens of KB.
+pub const INLINE_MAX_BYTES: u64 = 1_048_576;
+
+/// Outcome of preparing a PNG for inline return.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlinePng {
+    /// The file is within the ceiling; the base64 of its bytes (for `image/png`).
+    Ready(String),
+    /// The file exceeds the ceiling; carries its size so the caller can explain the
+    /// degrade-to-path note.
+    TooLarge(u64),
+}
+
+/// Standard RFC 4648 base64 (with `=` padding) of `bytes`. Hand-rolled to keep the
+/// crate's dependency tree lean (the only thing the inline return needs from base64 is
+/// encode), and unit-tested against the RFC's known vectors.
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[(n >> 18 & 0x3f) as usize] as char);
+        out.push(ALPHABET[(n >> 12 & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6 & 0x3f) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[(n & 0x3f) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Read the PNG at `path` and prepare it for an inline image-content block: `Ready`
+/// (base64) when within `max_bytes`, `TooLarge` when over (caller degrades to path +
+/// note), or `Err` when it can't be read. Pure file-in so it's unit-tested.
+pub fn read_inline_png(path: &Path, max_bytes: u64) -> Result<InlinePng, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("failed to read preview {} for inline return: {e}", path.display()))?;
+    if bytes.len() as u64 > max_bytes {
+        return Ok(InlinePng::TooLarge(bytes.len() as u64));
+    }
+    Ok(InlinePng::Ready(base64_encode(&bytes)))
+}
+
 /// Decode the PNG at `src`, nearest-neighbor upscale it by `requested_scale`
 /// (or [`auto_preview_scale`] when `None`), and write the result as a PNG to
 /// `dst`. Pure file-in / file-out so it can be exercised without Aseprite.
@@ -59,34 +202,10 @@ pub fn render_preview(
     dst: &Path,
     requested_scale: Option<u32>,
 ) -> Result<PreviewInfo, String> {
-    let img = image::open(src)
-        .map_err(|e| format!("failed to decode preview source {}: {e}", src.display()))?;
-    let (w, h) = (img.width(), img.height());
-    if w == 0 || h == 0 {
-        return Err(format!("preview source has a zero dimension ({w}x{h})"));
-    }
-
-    let scale = requested_scale
-        .map(|s| s.max(1))
-        .unwrap_or_else(|| auto_preview_scale(w, h));
-    let scale = clamp_scale_to_max_edge(w, h, scale);
-
-    let rgba = img.to_rgba8();
-    let out = if scale == 1 {
-        rgba
-    } else {
-        image::imageops::resize(&rgba, w * scale, h * scale, image::imageops::FilterType::Nearest)
-    };
+    let (out, info) = render_preview_buffer(src, requested_scale, None)?;
     out.save_with_format(dst, image::ImageFormat::Png)
         .map_err(|e| format!("failed to write preview {}: {e}", dst.display()))?;
-
-    Ok(PreviewInfo {
-        source_width: w,
-        source_height: h,
-        scale,
-        preview_width: w * scale,
-        preview_height: h * scale,
-    })
+    Ok(info)
 }
 
 #[cfg(test)]
@@ -155,6 +274,133 @@ mod tests {
 
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
+    }
+
+    /// Reference base64 decode for the round-trip test only (production needs encode).
+    fn base64_decode(s: &str) -> Vec<u8> {
+        fn val(c: u8) -> Option<u32> {
+            match c {
+                b'A'..=b'Z' => Some((c - b'A') as u32),
+                b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+                b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+                b'+' => Some(62),
+                b'/' => Some(63),
+                _ => None,
+            }
+        }
+        let mut out = Vec::new();
+        for chunk in s.as_bytes().chunks(4) {
+            let n = |i: usize| chunk.get(i).copied().and_then(val).unwrap_or(0);
+            let pad = chunk.iter().filter(|&&c| c == b'=').count();
+            let triple = (n(0) << 18) | (n(1) << 12) | (n(2) << 6) | n(3);
+            out.push((triple >> 16) as u8);
+            if pad < 2 {
+                out.push((triple >> 8) as u8);
+            }
+            if pad < 1 {
+                out.push(triple as u8);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn base64_encode_matches_rfc4648_vectors() {
+        // RFC 4648 §10 test vectors pin the encoder (incl. 1- and 2-byte padding).
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        // Round-trips arbitrary bytes (incl. the high bit) through the local decoder.
+        let raw: Vec<u8> = (0u8..=255).collect();
+        assert_eq!(base64_decode(&base64_encode(&raw)), raw);
+    }
+
+    #[test]
+    fn read_inline_png_round_trips_and_guards_size() {
+        // A small PNG within the ceiling round-trips: base64 decodes back to the same
+        // image dimensions (the "valid image/png content block" acceptance check).
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_inline_src.png");
+        let img = RgbaImage::from_pixel(12, 9, Rgba([3, 4, 5, 255]));
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+        let file_len = std::fs::metadata(&src).unwrap().len();
+
+        match read_inline_png(&src, INLINE_MAX_BYTES).unwrap() {
+            InlinePng::Ready(b64) => {
+                let bytes = base64_decode(&b64);
+                let back = image::load_from_memory(&bytes).unwrap();
+                assert_eq!((back.width(), back.height()), (12, 9));
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+
+        // A ceiling below the file size degrades to TooLarge carrying the real size.
+        assert_eq!(read_inline_png(&src, 1).unwrap(), InlinePng::TooLarge(file_len));
+        // A missing file is an error, not a panic.
+        assert!(read_inline_png(&dir.join("aseprite_mcp_inline_missing.png"), INLINE_MAX_BYTES).is_err());
+
+        let _ = std::fs::remove_file(&src);
+    }
+
+    #[test]
+    fn clamp_crop_clamps_to_canvas_and_rejects_out_of_bounds() {
+        // Fully inside -> unchanged.
+        assert_eq!(clamp_crop(64, 64, Crop { x: 8, y: 8, width: 16, height: 16 }).unwrap(), (8, 8, 16, 16));
+        // Over-wide/tall -> clamped to the remaining canvas.
+        assert_eq!(clamp_crop(64, 64, Crop { x: 60, y: 50, width: 100, height: 100 }).unwrap(), (60, 50, 4, 14));
+        // Origin outside the image -> error.
+        assert!(clamp_crop(64, 64, Crop { x: 64, y: 0, width: 4, height: 4 }).is_err());
+        assert!(clamp_crop(64, 64, Crop { x: 0, y: 99, width: 4, height: 4 }).is_err());
+        // Zero requested size -> nothing remains -> error.
+        assert!(clamp_crop(64, 64, Crop { x: 0, y: 0, width: 0, height: 8 }).is_err());
+    }
+
+    #[test]
+    fn render_preview_buffer_crops_then_scales_the_crop() {
+        // A 64×64 canvas, distinct marker inside a 16×16 sub-region. Cropping to that
+        // region then auto-scaling must fill ~1024px off the CROP's long edge (16→16x
+        // = 256px), and report the crop origin for exact inversion.
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_preview_crop_src.png");
+        let mut img = RgbaImage::from_pixel(64, 64, Rgba([0, 0, 0, 255]));
+        let marker = Rgba([222, 111, 33, 255]);
+        img.put_pixel(20, 24, marker); // inside the crop at (x=16,y=16,16×16)
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+
+        let crop = Crop { x: 16, y: 16, width: 16, height: 16 };
+        let (buf, info) = render_preview_buffer(&src, None, Some(crop)).unwrap();
+        assert_eq!((info.source_width, info.source_height), (16, 16));
+        assert_eq!((info.crop_x, info.crop_y), (16, 16));
+        assert_eq!(info.scale, 16); // 16px long edge -> 16x -> 256px
+        assert_eq!((info.preview_width, info.preview_height), (256, 256));
+        // The marker at source (20,24) is crop-local (4,8); at 16x its block starts at
+        // preview (64,128) and carries the marker colour.
+        assert_eq!((buf.width(), buf.height()), (256, 256));
+        assert_eq!(*buf.get_pixel(64, 128), marker);
+
+        let _ = std::fs::remove_file(&src);
+    }
+
+    #[test]
+    fn render_preview_buffer_full_crop_matches_uncropped() {
+        // crop covering the whole canvas must reproduce the uncropped buffer exactly.
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_preview_fullcrop_src.png");
+        let mut img = RgbaImage::from_pixel(8, 6, Rgba([5, 6, 7, 255]));
+        img.put_pixel(3, 2, Rgba([9, 9, 9, 255]));
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+
+        let (a, ia) = render_preview_buffer(&src, Some(4), None).unwrap();
+        let (b, ib) = render_preview_buffer(&src, Some(4), Some(Crop { x: 0, y: 0, width: 8, height: 6 })).unwrap();
+        assert_eq!(ia, ib);
+        assert_eq!((ib.crop_x, ib.crop_y), (0, 0));
+        assert_eq!(a.into_raw(), b.into_raw());
+
+        let _ = std::fs::remove_file(&src);
     }
 
     #[test]

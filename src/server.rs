@@ -43,6 +43,31 @@ fn resolve_output_dir() -> Option<PathBuf> {
     Some(path)
 }
 
+/// Assemble the `live_save_preview` result: always a text content with the JSON sidecar
+/// (path + metadata — the auto-preview hook and non-vision clients rely on it), plus —
+/// when `inline` and within the byte ceiling — the PNG as an inline `image/png` block so
+/// a vision client sees the pixels directly (SPEC-005 Phase 3 / ADR-0007). Over the
+/// ceiling (or on a read error) inline degrades to a text note, never a silent truncation.
+fn build_preview_call_result(json: String, inline: bool, filename: &str) -> CallToolResult {
+    let mut contents = vec![Content::text(json)];
+    if inline {
+        match crate::preview::read_inline_png(Path::new(filename), crate::preview::INLINE_MAX_BYTES) {
+            Ok(crate::preview::InlinePng::Ready(b64)) => {
+                contents.push(Content::image(b64, "image/png"));
+            }
+            Ok(crate::preview::InlinePng::TooLarge(bytes)) => {
+                contents.push(Content::text(format!(
+                    "inline image skipped: preview is {bytes} bytes (over the {}-byte ceiling); \
+                     open it at {filename}",
+                    crate::preview::INLINE_MAX_BYTES
+                )));
+            }
+            Err(e) => contents.push(Content::text(format!("inline image unavailable: {e}"))),
+        }
+    }
+    CallToolResult::success(contents)
+}
+
 #[tool_router]
 impl AsepriteServer {
     pub fn new() -> anyhow::Result<Self> {
@@ -170,14 +195,43 @@ impl AsepriteServer {
             upscaled so the sprite's long edge lands near ~1024px. Raw 1x previews of small sprites \
             are below the resolution a vision model can read reliably, so use THIS (not \
             live_save_copy_as) whenever an agent needs to SEE its own work. Pass an integer `scale` \
-            to override, or omit it for an automatic factor (capped at 16x). Returns the source size, \
-            chosen scale, and preview size so preview pixels map back to sprite coordinates."
+            to override, or omit it for an automatic factor (capped at 16x). By default the preview \
+            gets a labelled coordinate gutter (numeric ticks along the top + left) so you can name \
+            the exact source (x,y) of a pixel to fix. Check `gutter_applied` in the result: when \
+            true, invert with source_x = (preview_x - gutter.left_w) / scale and source_y = \
+            (preview_y - gutter.top_h) / scale; when false (suppressed, or auto-degraded on a sprite \
+            too large for a legible gutter — see `gutter_skipped`) the file is the bare upscaled art, \
+            so source_x = preview_x / scale and source_y = preview_y / scale. Set `gutter:false` to \
+            suppress it, `gutter:true` to require it (errors if illegible), or tune `gutter_step` \
+            (default 8 source-px). `crop` focuses the upscale budget on the subject: \"sprite\" \
+            (default, whole canvas), \"cel\" (the active cel's bbox — a small cel then fills ~1024px \
+            instead of a few), or {x,y,width,height}; the crop origin is reported as `crop` and the \
+            gutter labels read ABSOLUTE sprite coords, so add `crop.x`/`crop.y` (already baked into \
+            the gutter labels) when inverting. Returns source size (the previewed region), chosen \
+            scale, crop origin, preview size, and (when drawn) the gutter band extents. \
+            Set `inline:true` to ALSO return the PNG as an inline base64 image/png block so a \
+            vision client sees the pixels directly (the file path is always present too); an \
+            oversized preview degrades to path + a note rather than blowing the context budget. \
+            Set `marks_from` to overlay numbered Set-of-Mark badges and get a `marks` \
+            [{n, region, bbox}] map: \"slices\" (one badge per named slice), \"layers\" (one per \
+            visible layer's cel at the active frame), or \"components\" (one per connected opaque \
+            blob). Then the critic can say \"region 3 has a stray pixel\" and you map 3 -> that \
+            slice/layer/blob via the returned bbox — no fragile free-form coordinates. `marks` \
+            is present (possibly []) whenever marks are requested; if more than a cap are found \
+            only the largest are badged and `marks_truncated` reports the true total."
     )]
     async fn live_save_preview(
         &self,
         params: Parameters<crate::live::LiveSavePreviewParams>,
-    ) -> Result<String, String> {
-        self.live.save_preview(params.0).await
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let inline = p.inline.unwrap_or(false);
+        let filename = p.filename.clone();
+        match self.live.save_preview(p).await {
+            Ok(json) => Ok(build_preview_call_result(json, inline, &filename)),
+            // Preserve the legacy error shape: the JSON error string as error-text content.
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+        }
     }
 
     #[tool(
