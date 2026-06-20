@@ -283,8 +283,11 @@ CRUD/dedupe/export was then **verified end-to-end on Aseprite 1.3.17.2** (plugin
 overwrite+fill confirmed by render, export Tiled/Godot/JSON+blob47 grid round-trips
 exactly; three live-surfaced bugs fixed (see CHANGELOG). The new live tool surface
 strengthens 2.1 (a formal re-score is deferred to the next milestone pass). Only
-Tiled/Godot **import** of the emitted files remains a user check. A `pixel-tileset`
-skill (5.x) is still future work. See SPEC-003 Acceptance + ADR-0005.
+Tiled/Godot **import** of the emitted files remains a user check. The `pixel-tileset`
+skill (5.x) is **now authored** (`skills/pixel-tileset/SKILL.md`): preflight +
+`tilemap`-capability gate, paint→`pack_similar_tiles` / author→`stamp_tiles`, packed-PNG
+vision check, `seam_lint.py` gate, and `export_tileset` (tiled/godot/json, blob47); a
+live graded run is still pending. See SPEC-003 Acceptance + ADR-0005.
 
 **Remaining polish (beyond DoD, optional):** split `LegL`/`LegR` for the walk +
 re-run Tier-B with evidence archived under `evals/runs/` (5.3, 9.4); demonstrate

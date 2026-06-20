@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **`/pixel-tileset` skill (SPEC-003 checklist 5.x).** A `/pixel-*` verb that wraps the
+  live tilemap tools end-to-end: preflight + `tilemap`-capability gate, then either paint
+  a seamless mockup → `live_pack_similar_tiles` (dedupe) or author tiles →
+  `live_stamp_tiles`, review the packed tiles via `live_get_tileset` (vision PNG), validate
+  edges with `tools/seam_lint.py`, and `live_export_tileset` to Tiled/Godot/JSON (blob47
+  wangset for terrain; LDtk reads `.aseprite` directly). Palette-locked tiles, seam gate,
+  loud capability/preflight stops — no batch fallback. `skills/pixel-tileset/SKILL.md`.
 - **`live_frame_diff` — pixel-level diff of two frames as a text grid (Perception
   fast-follow, research Path 1).** Renders `from_frame` and `to_frame` (modal-free
   `save_preview`, 1×) and emits a one-glyph-per-cell grid: `.` = unchanged, `-` =
