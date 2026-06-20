@@ -38,8 +38,9 @@ pub const DEFAULT_GUTTER_STEP: u32 = 8;
 pub const MIN_TICK_PX: u32 = 24;
 
 /// Gutter band background — a dark neutral the bright label colour contrasts against
-/// and (being in a separate margin) never overlaps the art.
-const BAND_BG: Rgba<u8> = Rgba([26, 26, 26, 255]);
+/// and (being in a separate margin) never overlaps the art. Also used as the Set-of-Mark
+/// badge backing (`marks.rs`) so numbered badges read on any art the same way.
+pub const BAND_BG: Rgba<u8> = Rgba([26, 26, 26, 255]);
 
 /// 3×5 bitmap font for digits 0–9. Each entry is 5 rows top→bottom; the low 3 bits
 /// of each row are the columns (bit 2 = left, bit 0 = right). No font dependency.
@@ -56,8 +57,8 @@ const DIGIT_GLYPHS: [[u8; 5]; 10] = [
     [0b111, 0b101, 0b111, 0b001, 0b111], // 9
 ];
 
-const GLYPH_W: u32 = 3;
-const GLYPH_H: u32 = 5;
+pub const GLYPH_W: u32 = 3;
+pub const GLYPH_H: u32 = 5;
 
 /// Source-space coordinates of the ticks along an edge: `0, step, 2·step, …` while
 /// `< dim`. `0` is always present (the origin tick); `step` is floored to ≥ 1.
@@ -104,8 +105,8 @@ fn digits(n: u32) -> Vec<u8> {
 }
 
 /// Rendered width in px of the label for `n` at `fs` (digits are `GLYPH_W` wide with
-/// a 1-px column gap, scaled by `fs`).
-fn label_width(n: u32, fs: u32) -> u32 {
+/// a 1-px column gap, scaled by `fs`). Also used by `marks.rs` to size badge backings.
+pub fn label_width(n: u32, fs: u32) -> u32 {
     let k = digits(n).len() as u32;
     // k glyphs of GLYPH_W plus (k-1) single-column gaps, all ×fs.
     (k * GLYPH_W + k.saturating_sub(1)) * fs
@@ -179,14 +180,17 @@ pub fn sprite_palette(img: &RgbaImage, scale: u32) -> Vec<color_ops::Rgba> {
     palette
 }
 
-fn put(img: &mut RgbaImage, x: u32, y: u32, color: Rgba<u8>) {
+/// Bounds-checked single-pixel write (no-op off the image). Shared with `marks.rs`.
+pub fn put(img: &mut RgbaImage, x: u32, y: u32, color: Rgba<u8>) {
     if x < img.width() && y < img.height() {
         img.put_pixel(x, y, color);
     }
 }
 
 /// Draw one decimal label with its left edge at `(x, y)` in `color` at scale `fs`.
-fn draw_label(img: &mut RgbaImage, mut x: u32, y: u32, n: u32, fs: u32, color: Rgba<u8>) {
+/// Shared with `marks.rs` so the coordinate gutter and the Set-of-Mark badges use the
+/// one built-in bitmap font.
+pub fn draw_label(img: &mut RgbaImage, mut x: u32, y: u32, n: u32, fs: u32, color: Rgba<u8>) {
     for d in digits(n) {
         let glyph = &DIGIT_GLYPHS[d as usize];
         for (row, bits) in glyph.iter().enumerate() {

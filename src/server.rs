@@ -211,7 +211,14 @@ impl AsepriteServer {
             scale, crop origin, preview size, and (when drawn) the gutter band extents. \
             Set `inline:true` to ALSO return the PNG as an inline base64 image/png block so a \
             vision client sees the pixels directly (the file path is always present too); an \
-            oversized preview degrades to path + a note rather than blowing the context budget."
+            oversized preview degrades to path + a note rather than blowing the context budget. \
+            Set `marks_from` to overlay numbered Set-of-Mark badges and get a `marks` \
+            [{n, region, bbox}] map: \"slices\" (one badge per named slice), \"layers\" (one per \
+            visible layer's cel at the active frame), or \"components\" (one per connected opaque \
+            blob). Then the critic can say \"region 3 has a stray pixel\" and you map 3 -> that \
+            slice/layer/blob via the returned bbox — no fragile free-form coordinates. `marks` \
+            is present (possibly []) whenever marks are requested; if more than a cap are found \
+            only the largest are badged and `marks_truncated` reports the true total."
     )]
     async fn live_save_preview(
         &self,

@@ -11,6 +11,7 @@ mod color_ops;
 mod filmstrip;
 mod gutter;
 mod live;
+mod marks;
 mod preview;
 mod server;
 mod tileset_export;

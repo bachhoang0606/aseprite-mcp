@@ -3,6 +3,31 @@
 ## Unreleased
 
 ### Added
+- **SPEC-005 Phase 4 — `live_save_preview` Set-of-Mark numbered regions (`marks_from`).**
+  Overlay numbered badges on regions and return a `marks:[{n, region, bbox}]` map so the
+  critic can say "region 3 has a stray pixel" and the orchestrator maps `3 → that
+  slice/layer/blob` — no fragile free-form coordinates (research §A SoM). `marks_from`:
+  `"slices"` (one per named slice), `"layers"` (one per visible layer's cel at the active
+  frame), or `"components"` (one per 4-connected opaque blob). New pure `src/marks.rs`:
+  `connected_components` (iterative flood fill mirroring `tools/lint_sprite.py`'s opacity +
+  4-neighbour notion), `assign_marks` (numbers 1..N; inverse is `marks[n-1]`), `draw_badge`
+  (numbered badge over a neutral box, clamped on-canvas), reusing the one shared bitmap font
+  from `gutter.rs`. No new plugin command — `slices`/`layers` reuse `list_slices`/`list_cels`
+  ∩ `list_layers`; `components` is pure Rust. Layer visibility honours **effective** group
+  visibility (a layer in a hidden group isn't marked) and disambiguates duplicate layer
+  names (`Body`, `Body #2`); `components` runs CC at source resolution (reconstructed from
+  the upscaled buffer, so it never touches the up-to-67M-px buffer); a `MAX_MARKS` cap keeps
+  the largest regions and reports the total in `marks_truncated`. `finish_preview` filters
+  regions to the crop window then numbers them (every mark has a visible badge, contiguous
+  numbering) and draws each at `band + (centroid − crop)·scale`, returning `marks` even when
+  empty ("requested, none found"). Unit-tested (CC disjoint/L-merge/empty, mark numbering +
+  inversion, badge bounds/clamp, slice/layer parse, group-visibility, duplicate names,
+  crop-window filter under a non-zero crop, marks-over-an-applied-gutter-band, truncation).
+  112 unit tests pass; clippy adds no new lints.
+- **SPEC-005 Phase 5 — plugin `0.3.2` advertises `perception2`.** The only plugin change
+  across SPEC-005 is the Phase-2 `cel.bounds` report in `save_preview`, so the new
+  `perception2` feature flag means "`crop="cel"` works"; the gutter / crop-math / inline /
+  marks features are server-side and degrade loudly on an old plugin rather than being gated.
 - **`live_frame_diff` — pixel-level diff of two frames as a text grid (Perception
   fast-follow, research Path 1).** Renders `from_frame` and `to_frame` (modal-free
   `save_preview`, 1×) and emits a one-glyph-per-cell grid: `.` = unchanged, `-` =
