@@ -1,9 +1,11 @@
 # SPEC-005 — Perception fast-follow (gutter + region-crop + inline image + Set-of-Mark)
 
-- Status: **Phase 1 landed (2026-06-20)** — the gutter compositor (`src/gutter.rs`)
-  is now wired onto `live_save_preview` via the pure `live::finish_preview` helper
-  (on by default, exact coordinate inversion in the sidecar); Phases 2–4 (region
-  crop / inline image / Set-of-Mark) still Draft (2026-06-17). Roadmap item #1
+- Status: **Phases 1–2 landed (2026-06-20)** — Phase 1: the gutter compositor
+  (`src/gutter.rs`) is wired onto `live_save_preview` via the pure `live::finish_preview`
+  (on by default, exact coordinate inversion). Phase 2: region crop (`crop`:
+  `"sprite"`/`"cel"`/`{x,y,width,height}`) — crop-then-scale + gutter labels in
+  absolute sprite coords; offline-verified, `crop="cel"` pending a live plugin-reload
+  verify. Phases 3–4 (inline image / Set-of-Mark) still Draft (2026-06-17). Roadmap item #1
   ("Preview overhaul") fast-follow: the nearest-neighbor **upscale** already landed
   (`live_save_preview` + `src/preview.rs`); this spec ships the **remaining three
   legs** of that item — a **coordinate gutter**, **cel-bbox region crop**, and
@@ -110,6 +112,30 @@ a 256×256 canvas fills ~1024px, not ~64px). The reported `PreviewInfo` gains
 `crop_x, crop_y` so coordinates still map back exactly. Pure-Rust crop+scale is
 unit-tested; the cel-bounds read is the only live piece.
 
+**Phase 2 — implemented (2026-06-20).** `crop?: "sprite" | "cel" | {x,y,width,height}`
+on `LiveSavePreviewParams`. Flow: `save_preview` calls the plugin once (the response
+now carries the active cel's `bounds`), then `resolve_crop_plan` validates the selector
+and `render_preview_buffer(src, scale, crop)` clamps the rect, crops the decoded RGBA,
+and auto-scales on the **crop's** long edge; `PreviewInfo` gains `crop_x/crop_y`. The
+gutter draws labels in **absolute** sprite coords via `gutter::render_with_gutter_at`
+(`origin = crop`), so the agent reads the real (x,y) with no arithmetic, and the sidecar
+adds `crop:{x,y}`. Decisions:
+- *`crop="cel"` resolves from the plugin's reported `cel.bounds`* (new read-only field in
+  `handle_save_preview`); a negative cel origin is clamped to the canvas. Absent bounds —
+  an empty active layer/frame, or an **old plugin** that predates the field — is a loud
+  `cel_bounds_unavailable` degrade (ADR-0005), never a silent guess. This resolves the
+  Phase-1 deferral (b): `render_with_gutter_at` still derives src dims as `pw/scale`, but
+  that stays exact because the crop is a whole-pixel rect upscaled by an integer factor.
+- *`crop="sprite"` / full-canvas rect short-circuits to the uncropped buffer*, so the
+  default path is byte-for-byte today's output (no-regression unit test).
+- *Explicit-rect validation is pure* (`resolve_crop_plan` / `rect_to_crop` /
+  `cel_crop_from_response`) and unit-tested (modes, negative/zero rects, cel clamp, old-
+  plugin degrade); the cel-bounds *read* is the only live piece, pending a plugin-reload
+  verify.
+- *Capability advertisement (`perception2`) still deferred to Phases 3–4* — Phase 2's
+  plugin change is an additive read-only field with built-in old-plugin degradation, not
+  a new command, so nothing yet requires a version gate.
+
 ### Phase 3 — Inline MCP-Image return
 Add an `inline` option so `live_save_preview` (and `live_get_tileset` /
 `live_save_filmstrip`, which already produce vision PNGs) can return the PNG as an
@@ -161,10 +187,13 @@ SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
       legible draw, default degrade, explicit require success + refusal, `gutter:false`
       bare, fully-transparent art, write-failure); the legibility floor also rejects
       multi-digit label overlap. 81 unit tests pass; clippy adds no new lints.
-- [ ] Phase 2: crop+scale is unit-tested — a small cel on a big canvas crops to its
-      bbox and scales so the crop's long edge ≈ target; `crop_x/crop_y` make the
-      coordinate inversion exact; `crop="sprite"` reproduces today's output byte-for-
-      byte (no regression).
+- [x] Phase 2: crop+scale is unit-tested — a small region on a big canvas crops to its
+      rect and scales so the crop's long edge ≈ target; `crop_x/crop_y` + absolute-coord
+      gutter labels make the inversion exact; `crop="sprite"`/full-rect reproduces today's
+      output byte-for-byte (no-regression test). `crop` modes + rect validation + cel-
+      bounds parsing/clamp/old-plugin degrade are unit-tested (`resolve_crop_plan`,
+      `rect_to_crop`, `cel_crop_from_response`, `clamp_crop`). 87 unit tests pass; clippy
+      adds no new lints. **Live-verify of `crop="cel"` pending a plugin reload.**
 - [ ] Phase 3: `inline=true` returns a valid `image/png` content block decodable back
       to the preview dimensions; over the byte ceiling it degrades to path + note;
       the schema-contract test covers the new param and the crate compiles clippy-clean.

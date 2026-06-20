@@ -40,6 +40,20 @@
   helpers `live::finish_preview` + `gutter::sprite_palette` unit-tested (transparent
   art, explicit-require success/refusal, default degrade, write-failure, label-overlap
   refusal). No plugin change — works with any connected plugin version.
+- **SPEC-005 Phase 2 — `live_save_preview` region crop (`crop`).** Focus the upscale
+  budget on the subject: `crop:"sprite"` (whole canvas, default), `crop:"cel"` (the
+  active cel's bbox — a 16×16 cel on a 256×256 canvas now fills ~1024px instead of
+  ~64px), or `crop:{x,y,width,height}`. `render_preview_buffer` clamps the rect, crops
+  the decoded RGBA, then auto-scales on the **crop's** long edge; `PreviewInfo` gains
+  `crop_x/crop_y` and the sidecar a `crop:{x,y}`. The gutter draws labels in **absolute**
+  sprite coordinates (`gutter::render_with_gutter_at`, origin = crop), so the agent reads
+  the real (x,y) with no arithmetic. `crop:"cel"` resolves from a new read-only `cel`
+  bounds field the plugin reports in `save_preview`; an empty cel or an old plugin is a
+  loud `cel_bounds_unavailable` degrade (never a silent guess). Pure crop/validation
+  helpers unit-tested (`clamp_crop`, `resolve_crop_plan`, `rect_to_crop`,
+  `cel_crop_from_response`, crop-then-scale, full-crop no-regression, absolute-label
+  origin). 87 unit tests pass; clippy adds no new lints. (Live-verify of `crop:"cel"`
+  pending a plugin reload.)
 
   [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three

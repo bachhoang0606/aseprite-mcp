@@ -218,16 +218,33 @@ pub struct GutterInfo {
 }
 
 /// Composite a labelled coordinate gutter (top + left) around an already-upscaled
-/// preview `img`. `scale` is the integer upscale factor used to produce `img`;
-/// `step` is the source-px tick spacing; `palette` (sprite colours) steers the
-/// off-art label colour. Returns the bigger image + the band extents, or an error
-/// when the tick spacing (`step * scale`) cannot fit the rendered labels legibly —
-/// the floor is `MIN_TICK_PX` *and* the widest/tallest label box, so multi-digit
-/// labels at a small `step`/large `scale` can't silently collide.
+/// preview `img`, with tick labels in source coordinates (origin 0,0 — today's
+/// behaviour). For a **cropped** preview use [`render_with_gutter_at`], whose labels
+/// read absolute sprite coordinates.
 pub fn render_with_gutter(
     img: &RgbaImage,
     scale: u32,
     step: u32,
+    palette: &[color_ops::Rgba],
+) -> Result<(RgbaImage, GutterInfo), String> {
+    render_with_gutter_at(img, scale, step, 0, 0, palette)
+}
+
+/// Like [`render_with_gutter`] but tick labels are offset by `(origin_x, origin_y)` —
+/// the crop's origin in full-sprite space (Phase 2) — so a label reads the **absolute**
+/// sprite coordinate and the agent needs no arithmetic to map it back. `scale` is the
+/// integer upscale factor used to produce `img`; `step` is the source-px tick spacing;
+/// `palette` (sprite colours) steers the off-art label colour. Returns the bigger
+/// image and its band extents, or an error when the tick spacing (`step * scale`)
+/// cannot fit the rendered labels legibly — the floor is `MIN_TICK_PX` and the
+/// widest/tallest label box, so multi-digit labels can't silently collide (a large
+/// `origin` widens the labels, and the floor accounts for it).
+pub fn render_with_gutter_at(
+    img: &RgbaImage,
+    scale: u32,
+    step: u32,
+    origin_x: u32,
+    origin_y: u32,
     palette: &[color_ops::Rgba],
 ) -> Result<(RgbaImage, GutterInfo), String> {
     let scale = scale.max(1);
@@ -242,8 +259,8 @@ pub fn render_with_gutter(
     let fs = label_font_scale(scale);
     let xticks = tick_positions(src_w, step);
     let yticks = tick_positions(src_h, step);
-    let max_x_label = *xticks.last().unwrap_or(&0);
-    let max_y_label = *yticks.last().unwrap_or(&0);
+    let max_x_label = origin_x + *xticks.last().unwrap_or(&0);
+    let max_y_label = origin_y + *yticks.last().unwrap_or(&0);
 
     // Legibility floor. Ticks sit `step * scale` px apart in preview space and labels
     // are centred on them, so the gutter is only readable when that spacing also clears
@@ -289,24 +306,26 @@ pub fn render_with_gutter(
         }
     }
 
-    // Top gutter: x-labels centred on their tick column + a tick stub.
+    // Top gutter: x-labels (absolute = origin_x + tick) centred on their tick column.
     let label_y = top_h.saturating_sub(GLYPH_H * fs + fs);
     for &tx in &xticks {
         let col_px = source_to_preview(tx, scale, left_w);
-        let lw = label_width(tx, fs);
+        let val = origin_x + tx;
+        let lw = label_width(val, fs);
         let lx = col_px.saturating_sub(lw / 2).max(left_w);
-        draw_label(&mut out, lx, label_y, tx, fs, label_col);
+        draw_label(&mut out, lx, label_y, val, fs, label_col);
         for dy in 0..(2 * fs) {
             put(&mut out, col_px, top_h.saturating_sub(1).saturating_sub(dy), label_col);
         }
     }
-    // Left gutter: y-labels vertically centred on their tick row + a tick stub.
+    // Left gutter: y-labels (absolute = origin_y + tick) centred on their tick row.
     for &ty in &yticks {
         let row_px = source_to_preview(ty, scale, top_h);
+        let val = origin_y + ty;
         let ly = row_px.saturating_sub(GLYPH_H * fs / 2);
-        let lw = label_width(ty, fs);
+        let lw = label_width(val, fs);
         let lx = left_w.saturating_sub(lw + 2 * fs);
-        draw_label(&mut out, lx, ly, ty, fs, label_col);
+        draw_label(&mut out, lx, ly, val, fs, label_col);
         for dx in 0..(2 * fs) {
             put(&mut out, left_w.saturating_sub(1).saturating_sub(dx), row_px, label_col);
         }
@@ -397,6 +416,21 @@ mod tests {
         assert!(render_with_gutter(&img, 1, 8, &[]).is_err());
         // scale 16, step 8 -> 128px spacing -> fine.
         assert!(render_with_gutter(&img, 16, 8, &[]).is_ok());
+    }
+
+    #[test]
+    fn origin_offsets_labels_to_absolute_coords() {
+        // 16×16 src @ 8x: ticks at src 0 and 8. A crop origin shifts the LABELS to
+        // absolute sprite coords (origin+tick), so multi-digit values widen the left
+        // band. The top band height is label-height driven, so origin doesn't change it.
+        let img = RgbaImage::from_pixel(128, 128, Rgba([0, 0, 0, 255]));
+        let (z, _) = render_with_gutter_at(&img, 8, 8, 0, 0, &[]).unwrap();
+        let (o, _) = render_with_gutter_at(&img, 8, 8, 100, 100, &[]).unwrap();
+        assert!(o.width() > z.width(), "absolute labels (100,108) widen the left band");
+        assert_eq!(o.height(), z.height(), "top band height is origin-independent");
+        // render_with_gutter == render_with_gutter_at at origin (0,0).
+        let (d, _) = render_with_gutter(&img, 8, 8, &[]).unwrap();
+        assert_eq!((d.width(), d.height()), (z.width(), z.height()));
     }
 
     #[test]
