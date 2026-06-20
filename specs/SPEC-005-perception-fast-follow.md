@@ -1,12 +1,15 @@
 # SPEC-005 — Perception fast-follow (gutter + region-crop + inline image + Set-of-Mark)
 
-- Status: Draft (2026-06-17). Roadmap item #1 ("Preview overhaul") fast-follow: the
-  nearest-neighbor **upscale** already landed (`live_save_preview` + `src/preview.rs`,
-  6 tests); this spec ships the **remaining three legs** of that item — a
-  **coordinate gutter**, **cel-bbox region crop**, and **inline MCP-Image** return —
-  plus **Set-of-Mark** numbered regions (§A line 270). Implement in phases; Phase 1
-  (gutter) and the Phase-4 overlay compositor are pure Rust and land without a live
-  Aseprite run.
+- Status: **Phase 1 landed (2026-06-20)** — the gutter compositor (`src/gutter.rs`)
+  is now wired onto `live_save_preview` via the pure `live::finish_preview` helper
+  (on by default, exact coordinate inversion in the sidecar); Phases 2–4 (region
+  crop / inline image / Set-of-Mark) still Draft (2026-06-17). Roadmap item #1
+  ("Preview overhaul") fast-follow: the nearest-neighbor **upscale** already landed
+  (`live_save_preview` + `src/preview.rs`); this spec ships the **remaining three
+  legs** of that item — a **coordinate gutter**, **cel-bbox region crop**, and
+  **inline MCP-Image** return — plus **Set-of-Mark** numbered regions (§A line 270).
+  Implement in phases; Phase 1 (gutter) and the Phase-4 overlay compositor are pure
+  Rust and land without a live Aseprite run.
 - Owner: project
 - Checklist items advanced: 1.x (perception/preview surface), 2.x (new live-tool
   options), 9.x (deterministic perception tests — gutter math, crop math, mark map)
@@ -73,6 +76,30 @@ Because the scale is integer and the crop origin known, `preview_x → source_x 
 crop_x + (preview_x - gutter_w) / scale` is **exact**. Refuse a gutter when the label
 density would be unreadable (cap like `ascii_view`'s 64-edge) and say so.
 
+**Phase 1 — implemented (2026-06-20).** Wired onto `live_save_preview`:
+`save_preview` renders to an in-memory buffer (`preview::render_preview_buffer`) and
+hands it to the pure `live::finish_preview`, which composites the gutter and writes
+the PNG. Decisions made during wiring:
+- *Default-on is legibility-gated, not raw-size-gated.* "Default on for sprites ≤ a
+  size cap" is implemented as "default on whenever the tick spacing is legible at the
+  chosen scale"; the `render_with_gutter` floor *is* the cap. This is exact (the floor
+  already accounts for label-box width/height so multi-digit labels can't overlap) and
+  needs no separately-tuned size constant. `gutter:true` makes an illegible request a
+  loud `gutter_unreadable` refusal; the default degrades to a plain preview with a
+  `gutter_skipped` note and `gutter_applied:false`.
+- *Sidecar contract.* The result reports `gutter_applied` (bool), and when applied a
+  `gutter:{left_w, top_h, step, image:{w,h}}` object; `preview:{w,h}` stays the bare
+  upscaled art, `gutter.image` is the on-disk (gutter'd) size. Inversion: when applied,
+  `source = (preview − {left_w,top_h}) / scale`; else `source = preview / scale`.
+- *Label colour* is steered off the sprite's own sampled colours
+  (`gutter::sprite_palette`, distinct opaque colours, one sample per source cell).
+- *Deferred (carried by review 2026-06-20):* (a) `live_get_capabilities` capability
+  advertisement is held until Phases 2–4 land — Phase 1 adds **no plugin command**, so
+  there is nothing version-gated to advertise (see Acceptance gate below); (b)
+  `render_with_gutter` re-derives source dims as `pw/scale` rather than taking them
+  from `PreviewInfo` — exact in Phase 1 (`pw = source·scale`), but **Phase 2 must pass
+  the crop's true source dims in** once a non-evenly-divisible crop is possible.
+
 ### Phase 2 — Region crop (cel bbox / explicit rect)
 Render the budget on the **subject**, not the canvas. `crop="cel"` uses the active
 cel's bounds (plugin returns `cel.bounds`); `crop="sprite"` = whole canvas (today);
@@ -125,10 +152,15 @@ SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
 - **Onion-skin / multi-cel composites** — animation perception, separate spec.
 
 ## Acceptance criteria
-- [ ] Phase 1: gutter compositor is pure-Rust unit-tested — tick positions land on
+- [x] Phase 1: gutter compositor is pure-Rust unit-tested — tick positions land on
       `gutter_step` source-px boundaries at the given scale; the coordinate-inversion
       identity (`preview_x → source_x`) holds for a table of (scale, step, x); the
       label colour is off-palette; oversized grids are refused with a clear error.
+      **Wiring (2026-06-20):** `live_save_preview` gains `gutter`/`gutter_step`; the
+      pure `live::finish_preview` composites-or-degrades and is unit-tested (default
+      legible draw, default degrade, explicit require success + refusal, `gutter:false`
+      bare, fully-transparent art, write-failure); the legibility floor also rejects
+      multi-digit label overlap. 81 unit tests pass; clippy adds no new lints.
 - [ ] Phase 2: crop+scale is unit-tested — a small cel on a big canvas crops to its
       bbox and scales so the crop's long edge ≈ target; `crop_x/crop_y` make the
       coordinate inversion exact; `crop="sprite"` reproduces today's output byte-for-
