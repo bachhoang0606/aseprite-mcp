@@ -12,6 +12,7 @@ mod filmstrip;
 mod gutter;
 mod live;
 mod preview;
+mod reference;
 mod server;
 mod tileset_export;
 mod tools;

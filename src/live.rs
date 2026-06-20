@@ -131,6 +131,31 @@ pub struct LivePixel {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveImportReferenceParams {
+    /// Path to a **PNG** reference image on disk (convert other formats to PNG first).
+    pub filename: String,
+    /// Target grid width in pixels. Omit to use the active sprite's width.
+    pub width: Option<u32>,
+    /// Target grid height in pixels. Omit to use the active sprite's height.
+    pub height: Option<u32>,
+    /// Downscale method: "dominant" (per-cell majority, edge-preserving — default) or
+    /// "average" (per-cell mean of opaque pixels).
+    pub method: Option<String>,
+    /// Explicit palette to snap to (a list of `#rrggbb`). Omit to snap to the active
+    /// sprite palette.
+    pub palette: Option<Vec<String>>,
+    /// Set `false` to skip palette snapping and keep the downscaled source colours.
+    pub snap: Option<bool>,
+    /// Target layer for the imported pixels. Defaults to "Reference".
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit to use the active frame.
+    pub frame: Option<u32>,
+    /// Top-left placement of the import on the canvas (default 0,0).
+    pub at_x: Option<i32>,
+    pub at_y: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveUseToolParams {
     /// Tool name: pencil, line, rectangle, filled_rectangle, ellipse, filled_ellipse, paint_bucket, or eraser.
     pub tool: String,
@@ -1320,6 +1345,134 @@ impl LiveBridge {
         .await
     }
 
+    /// Import a reference PNG as palette-locked pixel art on a layer (SPEC-006). Decodes
+    /// the reference, content-aware downscales it to the target grid + snaps to a palette
+    /// (pure `reference` core), then draws the result onto `layer` via the `draw_pixels`
+    /// path — no new plugin command. The live document is the only thing mutated.
+    pub async fn import_reference(
+        &self,
+        params: LiveImportReferenceParams,
+    ) -> Result<String, String> {
+        validate_non_empty("filename", &params.filename)?;
+        let method = crate::reference::Method::parse(params.method.as_deref().unwrap_or("dominant"))
+            .map_err(|e| live_error("invalid_method", &e, None))?;
+
+        // Guard the source size BEFORE the full decode (a huge PNG would OOM at decode).
+        let decode_err = |e: &dyn std::fmt::Display| {
+            live_error(
+                "reference_decode_failed",
+                &format!("failed to read PNG '{}': {e} (convert other formats to PNG first)", params.filename),
+                None,
+            )
+        };
+        let dims = image::ImageReader::open(&params.filename)
+            .map_err(|e| decode_err(&e))?
+            .into_dimensions()
+            .map_err(|e| decode_err(&e))?;
+        let cap = crate::reference::MAX_SOURCE_EDGE;
+        if dims.0 > cap || dims.1 > cap {
+            return Err(live_error(
+                "reference_too_large",
+                &format!("reference {}x{} exceeds the {cap}px decode cap — downscale it first", dims.0, dims.1),
+                None,
+            ));
+        }
+
+        // Decode the reference (PNG only — `image` is built png-only).
+        let img = image::open(&params.filename)
+            .map_err(|e| {
+                live_error(
+                    "reference_decode_failed",
+                    &format!("failed to read PNG '{}': {e} (convert other formats to PNG first)", params.filename),
+                    None,
+                )
+            })?
+            .to_rgba8();
+        let (sw, sh) = (img.width(), img.height());
+        if sw == 0 || sh == 0 {
+            return Err(live_error(
+                "invalid_reference",
+                &format!("reference has a zero dimension ({sw}x{sh})"),
+                None,
+            ));
+        }
+
+        // Resolve the target grid: explicit, else the active sprite's size.
+        let (tw, th) = match (params.width, params.height) {
+            (Some(w), Some(h)) => (w, h),
+            _ => {
+                let info: Value =
+                    serde_json::from_str(&self.get_sprite_info().await?).unwrap_or(Value::Null);
+                let sprite_w = info.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let sprite_h = info.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                (params.width.unwrap_or(sprite_w), params.height.unwrap_or(sprite_h))
+            }
+        };
+        validate_target_dims(tw, th)?;
+
+        // Resolve the palette: explicit list, the active palette, or none (snap off).
+        let snap = params.snap.unwrap_or(true);
+        let palette: Option<Vec<Rgba>> = if !snap {
+            None
+        } else if let Some(hexes) = &params.palette {
+            Some(parse_hex_palette(hexes)?)
+        } else {
+            Some(self.fetch_active_palette().await?)
+        };
+
+        // Pure core: downscale + snap.
+        let grid = crate::reference::downscale_to_grid(&img, tw, th, palette.as_deref(), method);
+        let (ax, ay) = (params.at_x.unwrap_or(0), params.at_y.unwrap_or(0));
+        let pixels = grid_to_pixels(&grid, ax, ay);
+        if pixels.is_empty() {
+            return Err(live_error(
+                "empty_result",
+                "the downscaled reference is fully transparent — nothing to draw",
+                None,
+            ));
+        }
+        let drawn = pixels.len();
+        let distinct = crate::reference::distinct_colors(&grid);
+
+        // Draw onto the target layer via the existing path.
+        let layer = params.layer.unwrap_or_else(|| "Reference".to_string());
+        self.draw_pixels(LiveDrawPixelsParams {
+            pixels,
+            layer: Some(layer.clone()),
+            frame: params.frame,
+        })
+        .await?;
+
+        Ok(json!({
+            "changed": true,
+            "layer": layer,
+            "source": { "width": sw, "height": sh },
+            "target": { "width": tw, "height": th },
+            "factor": (sw.max(sh) as f64 / tw.max(th).max(1) as f64),
+            "method": if method == crate::reference::Method::Average { "average" } else { "dominant" },
+            "palette_size": palette.as_ref().map(|p| p.len()),
+            "pixels_drawn": drawn,
+            "distinct_colors": distinct,
+        })
+        .to_string())
+    }
+
+    /// Fetch the active sprite's full palette as `color_ops::Rgba` (for import snapping).
+    async fn fetch_active_palette(&self) -> Result<Vec<Rgba>, String> {
+        let resp = self
+            .list_palette(LiveListPaletteParams { palette: None, from: Some(0), limit: Some(256) })
+            .await?;
+        let palette = parse_palette_colors(&resp);
+        if palette.is_empty() {
+            return Err(live_error(
+                "no_palette",
+                "the active sprite has no palette to snap to — pass `palette` or set snap:false",
+                None,
+            ));
+        }
+        Ok(palette)
+    }
+
     pub async fn use_tool(&self, params: LiveUseToolParams) -> Result<String, String> {
         if params.points.is_empty() {
             return Err(live_error(
@@ -2408,6 +2561,75 @@ fn validate_identifier(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Reject a non-positive or oversized `import_reference` target — bounds the one
+/// `draw_pixels` batch the import produces. Pure → unit-testable.
+fn validate_target_dims(tw: u32, th: u32) -> Result<(), String> {
+    if tw == 0 || th == 0 {
+        return Err(live_error(
+            "invalid_target",
+            &format!("target size must be positive (got {tw}x{th}); no active sprite to size from?"),
+            None,
+        ));
+    }
+    let cap = crate::reference::MAX_TARGET_EDGE;
+    if tw > cap || th > cap {
+        return Err(live_error(
+            "target_too_large",
+            &format!("target {tw}x{th} exceeds the {cap}px import cap — choose a smaller width/height"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+/// Parse an explicit `#rrggbb`(`aa`) palette list into `color_ops::Rgba`. Pure.
+fn parse_hex_palette(hexes: &[String]) -> Result<Vec<Rgba>, String> {
+    if hexes.is_empty() {
+        return Err(live_error("invalid_palette", "palette is empty", None));
+    }
+    let mut out = Vec::with_capacity(hexes.len());
+    for h in hexes {
+        out.push(Rgba::from_hex(h).map_err(|e| {
+            live_error("invalid_color", &format!("invalid palette colour '{h}': {e}"), None)
+        })?);
+    }
+    Ok(out)
+}
+
+/// Parse a `list_palette` response (`{colors:[{color:{red,green,blue,alpha}}]}`) into
+/// opaque `color_ops::Rgba`. Pure.
+fn parse_palette_colors(resp: &str) -> Vec<Rgba> {
+    let v: Value = serde_json::from_str(resp).unwrap_or(Value::Null);
+    let mut out = Vec::new();
+    if let Some(colors) = v.get("colors").and_then(|c| c.as_array()) {
+        for c in colors {
+            let col = c.get("color");
+            let f = |k: &str| col.and_then(|x| x.get(k)).and_then(|n| n.as_u64()).unwrap_or(0) as u8;
+            out.push(Rgba::rgb(f("red"), f("green"), f("blue")));
+        }
+    }
+    out
+}
+
+/// Convert the downscaled grid to a `draw_pixels` batch (skips fully-transparent cells),
+/// offset by `(ax, ay)`. Pure → unit-tested.
+fn grid_to_pixels(grid: &image::RgbaImage, ax: i32, ay: i32) -> Vec<LivePixel> {
+    let mut pixels = Vec::new();
+    for oy in 0..grid.height() {
+        for ox in 0..grid.width() {
+            let p = grid.get_pixel(ox, oy).0;
+            if p[3] != 0 {
+                pixels.push(LivePixel {
+                    x: ax + ox as i32,
+                    y: ay + oy as i32,
+                    color: format!("#{:02x}{:02x}{:02x}", p[0], p[1], p[2]),
+                });
+            }
+        }
+    }
+    pixels
+}
+
 /// Validate `live_save_preview` inputs without touching the bridge, so the guard
 /// is unit-testable: an empty filename or an explicit `scale` of 0 is rejected.
 fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), String> {
@@ -2434,6 +2656,55 @@ mod tests {
         assert!(validate_preview_request("preview.png", Some(8)).is_ok());
         let err = validate_preview_request("preview.png", Some(0)).unwrap_err();
         assert!(err.contains("invalid_scale"), "got: {err}");
+    }
+
+    // ---- import_reference helpers (SPEC-006) ------------------------------------
+
+    #[test]
+    fn validate_target_dims_bounds_the_import() {
+        assert!(validate_target_dims(64, 48).is_ok());
+        assert!(validate_target_dims(0, 32).unwrap_err().contains("invalid_target"));
+        assert!(validate_target_dims(32, 0).unwrap_err().contains("invalid_target"));
+        let cap = crate::reference::MAX_TARGET_EDGE;
+        assert!(validate_target_dims(cap, cap).is_ok());
+        assert!(validate_target_dims(cap + 1, 32).unwrap_err().contains("target_too_large"));
+    }
+
+    #[test]
+    fn parse_hex_palette_parses_and_rejects() {
+        let pal = parse_hex_palette(&["#ff0000".into(), "#00ff00".into()]).unwrap();
+        assert_eq!(pal, vec![Rgba::rgb(255, 0, 0), Rgba::rgb(0, 255, 0)]);
+        assert!(parse_hex_palette(&[]).unwrap_err().contains("invalid_palette"));
+        assert!(parse_hex_palette(&["nothex".into()]).unwrap_err().contains("invalid_color"));
+    }
+
+    #[test]
+    fn parse_palette_colors_reads_list_palette_response() {
+        let resp = json!({
+            "colors": [
+                { "index": 0, "color": { "red": 255, "green": 0, "blue": 0, "alpha": 255 } },
+                { "index": 1, "color": { "red": 16, "green": 32, "blue": 48, "alpha": 255 } },
+            ]
+        }).to_string();
+        assert_eq!(parse_palette_colors(&resp), vec![Rgba::rgb(255, 0, 0), Rgba::rgb(16, 32, 48)]);
+        // No colors array -> empty (caller turns that into a loud no_palette error).
+        assert!(parse_palette_colors("{}").is_empty());
+    }
+
+    #[test]
+    fn grid_to_pixels_skips_transparent_and_offsets() {
+        let mut grid = image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 0]));
+        grid.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        grid.put_pixel(1, 1, image::Rgba([0, 128, 255, 255]));
+        let pixels = grid_to_pixels(&grid, 10, 20);
+        assert_eq!(pixels.len(), 2, "transparent cells skipped");
+        assert_eq!((pixels[0].x, pixels[0].y), (10, 20));
+        assert_eq!(pixels[0].color, "#ff0000");
+        assert_eq!((pixels[1].x, pixels[1].y), (11, 21));
+        assert_eq!(pixels[1].color, "#0080ff");
+        // A fully-transparent grid yields nothing (caller errors empty_result).
+        let blank = image::RgbaImage::from_pixel(3, 3, image::Rgba([0, 0, 0, 0]));
+        assert!(grid_to_pixels(&blank, 0, 0).is_empty());
     }
 
     #[test]
@@ -2622,6 +2893,7 @@ mod tests {
             LiveClearCelParams,
             LiveDrawPixelsParams,
             LivePixel,
+            LiveImportReferenceParams,
             LiveUseToolParams,
             LivePoint,
             LiveEmptyParams,
