@@ -24,7 +24,11 @@ pub const PREVIEW_MAX_SCALE: u32 = 16;
 pub const PREVIEW_MAX_EDGE: u32 = 8192;
 
 /// What `render_preview` did, surfaced to the caller (and the agent) so it knows
-/// the mapping between preview pixels and real sprite coordinates.
+/// the mapping between preview pixels and real sprite coordinates. `source_*` are the
+/// dimensions of the **previewed region** (the crop, or the whole sprite when
+/// uncropped); `crop_x`/`crop_y` are that region's origin in full-sprite coordinates
+/// (0,0 uncropped) so a preview pixel inverts to a real sprite (x,y) exactly:
+/// `source_x = crop_x + (preview_x − gutter_left_w) / scale`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreviewInfo {
     pub source_width: u32,
@@ -32,6 +36,39 @@ pub struct PreviewInfo {
     pub scale: u32,
     pub preview_width: u32,
     pub preview_height: u32,
+    pub crop_x: u32,
+    pub crop_y: u32,
+}
+
+/// A source-space crop rectangle (Phase 2 region crop). `width`/`height` are clamped
+/// to the image by [`clamp_crop`]; a fully out-of-bounds rect is an error there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crop {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Clamp `crop` to the `[0,img_w) × [0,img_h)` canvas, returning the in-bounds
+/// `(x, y, w, h)` — or an error if the origin lies outside the image or nothing
+/// remains after clamping. Pure so the crop math is unit-tested without a PNG.
+pub fn clamp_crop(img_w: u32, img_h: u32, crop: Crop) -> Result<(u32, u32, u32, u32), String> {
+    if crop.x >= img_w || crop.y >= img_h {
+        return Err(format!(
+            "crop origin ({},{}) is outside the {img_w}x{img_h} preview",
+            crop.x, crop.y
+        ));
+    }
+    let w = crop.width.min(img_w - crop.x);
+    let h = crop.height.min(img_h - crop.y);
+    if w == 0 || h == 0 {
+        return Err(format!(
+            "crop {}x{} at ({},{}) has a zero dimension after clamping to {img_w}x{img_h}",
+            crop.width, crop.height, crop.x, crop.y
+        ));
+    }
+    Ok((crop.x, crop.y, w, h))
 }
 
 /// Pick an integer upscale factor so the sprite's long edge lands near
@@ -60,24 +97,39 @@ pub fn clamp_scale_to_max_edge(width: u32, height: u32, scale: u32) -> u32 {
 pub fn render_preview_buffer(
     src: &Path,
     requested_scale: Option<u32>,
+    crop: Option<Crop>,
 ) -> Result<(image::RgbaImage, PreviewInfo), String> {
     let img = image::open(src)
         .map_err(|e| format!("failed to decode preview source {}: {e}", src.display()))?;
-    let (w, h) = (img.width(), img.height());
-    if w == 0 || h == 0 {
-        return Err(format!("preview source has a zero dimension ({w}x{h})"));
+    let (full_w, full_h) = (img.width(), img.height());
+    if full_w == 0 || full_h == 0 {
+        return Err(format!("preview source has a zero dimension ({full_w}x{full_h})"));
     }
+    let rgba = img.to_rgba8();
+
+    // Crop to the subject first (Phase 2) so the upscale budget lands on the crop's
+    // long edge — a 16×16 cel on a 256×256 canvas fills ~1024px, not ~64px. A full-
+    // canvas crop short-circuits to the uncropped buffer so `crop="sprite"` is byte-
+    // for-byte today's output (no regression).
+    let (crop_x, crop_y, w, h) = match crop {
+        Some(c) => clamp_crop(full_w, full_h, c)?,
+        None => (0, 0, full_w, full_h),
+    };
+    let base = if crop_x == 0 && crop_y == 0 && w == full_w && h == full_h {
+        rgba
+    } else {
+        image::imageops::crop_imm(&rgba, crop_x, crop_y, w, h).to_image()
+    };
 
     let scale = requested_scale
         .map(|s| s.max(1))
         .unwrap_or_else(|| auto_preview_scale(w, h));
     let scale = clamp_scale_to_max_edge(w, h, scale);
 
-    let rgba = img.to_rgba8();
     let out = if scale == 1 {
-        rgba
+        base
     } else {
-        image::imageops::resize(&rgba, w * scale, h * scale, image::imageops::FilterType::Nearest)
+        image::imageops::resize(&base, w * scale, h * scale, image::imageops::FilterType::Nearest)
     };
 
     Ok((
@@ -88,6 +140,8 @@ pub fn render_preview_buffer(
             scale,
             preview_width: w * scale,
             preview_height: h * scale,
+            crop_x,
+            crop_y,
         },
     ))
 }
@@ -100,7 +154,7 @@ pub fn render_preview(
     dst: &Path,
     requested_scale: Option<u32>,
 ) -> Result<PreviewInfo, String> {
-    let (out, info) = render_preview_buffer(src, requested_scale)?;
+    let (out, info) = render_preview_buffer(src, requested_scale, None)?;
     out.save_with_format(dst, image::ImageFormat::Png)
         .map_err(|e| format!("failed to write preview {}: {e}", dst.display()))?;
     Ok(info)
@@ -172,6 +226,63 @@ mod tests {
 
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn clamp_crop_clamps_to_canvas_and_rejects_out_of_bounds() {
+        // Fully inside -> unchanged.
+        assert_eq!(clamp_crop(64, 64, Crop { x: 8, y: 8, width: 16, height: 16 }).unwrap(), (8, 8, 16, 16));
+        // Over-wide/tall -> clamped to the remaining canvas.
+        assert_eq!(clamp_crop(64, 64, Crop { x: 60, y: 50, width: 100, height: 100 }).unwrap(), (60, 50, 4, 14));
+        // Origin outside the image -> error.
+        assert!(clamp_crop(64, 64, Crop { x: 64, y: 0, width: 4, height: 4 }).is_err());
+        assert!(clamp_crop(64, 64, Crop { x: 0, y: 99, width: 4, height: 4 }).is_err());
+        // Zero requested size -> nothing remains -> error.
+        assert!(clamp_crop(64, 64, Crop { x: 0, y: 0, width: 0, height: 8 }).is_err());
+    }
+
+    #[test]
+    fn render_preview_buffer_crops_then_scales_the_crop() {
+        // A 64×64 canvas, distinct marker inside a 16×16 sub-region. Cropping to that
+        // region then auto-scaling must fill ~1024px off the CROP's long edge (16→16x
+        // = 256px), and report the crop origin for exact inversion.
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_preview_crop_src.png");
+        let mut img = RgbaImage::from_pixel(64, 64, Rgba([0, 0, 0, 255]));
+        let marker = Rgba([222, 111, 33, 255]);
+        img.put_pixel(20, 24, marker); // inside the crop at (x=16,y=16,16×16)
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+
+        let crop = Crop { x: 16, y: 16, width: 16, height: 16 };
+        let (buf, info) = render_preview_buffer(&src, None, Some(crop)).unwrap();
+        assert_eq!((info.source_width, info.source_height), (16, 16));
+        assert_eq!((info.crop_x, info.crop_y), (16, 16));
+        assert_eq!(info.scale, 16); // 16px long edge -> 16x -> 256px
+        assert_eq!((info.preview_width, info.preview_height), (256, 256));
+        // The marker at source (20,24) is crop-local (4,8); at 16x its block starts at
+        // preview (64,128) and carries the marker colour.
+        assert_eq!((buf.width(), buf.height()), (256, 256));
+        assert_eq!(*buf.get_pixel(64, 128), marker);
+
+        let _ = std::fs::remove_file(&src);
+    }
+
+    #[test]
+    fn render_preview_buffer_full_crop_matches_uncropped() {
+        // crop covering the whole canvas must reproduce the uncropped buffer exactly.
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_preview_fullcrop_src.png");
+        let mut img = RgbaImage::from_pixel(8, 6, Rgba([5, 6, 7, 255]));
+        img.put_pixel(3, 2, Rgba([9, 9, 9, 255]));
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+
+        let (a, ia) = render_preview_buffer(&src, Some(4), None).unwrap();
+        let (b, ib) = render_preview_buffer(&src, Some(4), Some(Crop { x: 0, y: 0, width: 8, height: 6 })).unwrap();
+        assert_eq!(ia, ib);
+        assert_eq!((ib.crop_x, ib.crop_y), (0, 0));
+        assert_eq!(a.into_raw(), b.into_raw());
+
+        let _ = std::fs::remove_file(&src);
     }
 
     #[test]

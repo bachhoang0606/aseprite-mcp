@@ -178,8 +178,12 @@ impl AsepriteServer {
             too large for a legible gutter — see `gutter_skipped`) the file is the bare upscaled art, \
             so source_x = preview_x / scale and source_y = preview_y / scale. Set `gutter:false` to \
             suppress it, `gutter:true` to require it (errors if illegible), or tune `gutter_step` \
-            (default 8 source-px). Returns source size, chosen scale, preview size, and (when drawn) \
-            the gutter band extents — so preview pixels map back to sprite coordinates exactly."
+            (default 8 source-px). `crop` focuses the upscale budget on the subject: \"sprite\" \
+            (default, whole canvas), \"cel\" (the active cel's bbox — a small cel then fills ~1024px \
+            instead of a few), or {x,y,width,height}; the crop origin is reported as `crop` and the \
+            gutter labels read ABSOLUTE sprite coords, so add `crop.x`/`crop.y` (already baked into \
+            the gutter labels) when inverting. Returns source size (the previewed region), chosen \
+            scale, crop origin, preview size, and (when drawn) the gutter band extents."
     )]
     async fn live_save_preview(
         &self,
