@@ -12,6 +12,7 @@ pillar **5. Skills**.
 | [`/pixel-animate`](pixel-animate/SKILL.md) | Build idle/walk/attack frames + tags from a rig | `04`, `05` |
 | [`/pixel-export`](pixel-export/SKILL.md) | Export PNG/GIF/spritesheet (+ JSON meta) | `06` (output) |
 | [`/pixel-review`](pixel-review/SKILL.md) | Critique a sprite against the rulebook, scored | `06` (all) |
+| [`/pixel-reference-motion`](pixel-reference-motion/SKILL.md) | Rotoscope a video/GIF/frame sequence into a clean animation (trace over a per-frame reference) | `01`, `04` |
 
 ## Non-negotiable for every skill
 1. **Preflight first.** Call `live_preflight`; proceed only when `ready: true`.

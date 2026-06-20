@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **`/pixel-reference-motion` skill — rotoscope a reference motion into a clean animation
+  (roadmap #7, research §C1).** Turn a video clip, an animated GIF, or a PNG frame sequence
+  into a palette-locked pixel-art animation by importing each reference frame as a dimmed,
+  on-palette `Reference` layer (via `live_import_reference`, SPEC-006) on its own animation
+  frame, then tracing clean pixels over it — fixing the cross-frame character drift you get
+  from generating each frame independently. Ships `tools/video_frames.py` (stdlib-only,
+  reuses `pixelpng.py`): wraps `ffmpeg` to sample K evenly-spaced key frames and chroma-keys
+  a green (`#00ff00`) background to transparent with the adaptive green-dominance test
+  `g - max(r,b) > threshold` (Mike Veerman's "Claude After Dark" method) — thresholds and
+  key colour CLI-configurable, `--frames` skips extraction for a pre-made sequence,
+  `--selftest` verifies the keying logic. The skill enforces: lock one shared palette first
+  (anti-flicker, §C4), reduce to 4–8 key poses (`rules/04`), review via `live_save_filmstrip`
+  (never a GIF — the API sees only frame 1), and remove the reference layer before shipping.
+  No new dependency (ffmpeg is the one external tool, and only the extract stage needs it).
 - **SPEC-006 Phase 1 — `live_import_reference`: reference image → palette-locked pixel art
   (Path 3/4, the hybrid-pipeline unlock).** Import a PNG reference (photo, illustration, AI
   image, CC0 asset) onto a layer in the open sprite so the agent can trace/clean over it
