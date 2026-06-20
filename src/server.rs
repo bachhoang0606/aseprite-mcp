@@ -477,6 +477,24 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-006: Import a PNG reference image as palette-locked pixel art onto a layer in \
+            the open sprite — the unlock for the hybrid/reference pipeline. Content-aware downscales the \
+            reference to a target grid (`width`/`height`, default the active sprite's size; `method` \
+            \"dominant\" = per-cell majority vote, edge-preserving, default, or \"average\") and snaps each \
+            cell to a palette (`palette` as a #rrggbb list, or the active sprite palette by default; \
+            `snap:false` keeps source colours), then draws the result onto `layer` (default \"Reference\") \
+            at `at_x`/`at_y`. Lets the agent trace/clean over a real reference instead of inventing organic \
+            shapes. PNG input only (convert other formats first); target capped at 256px/edge. Returns \
+            source/target size, factor, method, palette size, pixels drawn, and distinct colours."
+    )]
+    async fn live_import_reference(
+        &self,
+        params: Parameters<crate::live::LiveImportReferenceParams>,
+    ) -> Result<String, String> {
+        self.live.import_reference(params.0).await
+    }
+
+    #[tool(
         description = "Use an Aseprite drawing tool in the active sprite via the live plugin. Defaults to the AI Draft layer and active frame."
     )]
     async fn live_use_tool(

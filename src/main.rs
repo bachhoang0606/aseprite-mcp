@@ -13,6 +13,7 @@ mod gutter;
 mod live;
 mod marks;
 mod preview;
+mod reference;
 mod server;
 mod tileset_export;
 mod tools;

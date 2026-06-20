@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **SPEC-006 Phase 1 — `live_import_reference`: reference image → palette-locked pixel art
+  (Path 3/4, the hybrid-pipeline unlock).** Import a PNG reference (photo, illustration, AI
+  image, CC0 asset) onto a layer in the open sprite so the agent can trace/clean over it
+  instead of inventing organic shapes from text. Two deterministic steps fused in one pass:
+  a **content-aware downscale** to the target grid (`method:"dominant"` = per-cell majority
+  vote — edge-preserving, never a bilinear blur that invents colours — or `"average"`) and a
+  **CIELAB snap** to a palette (`palette` list, or the active sprite palette by default;
+  `snap:false` keeps source colours). Target defaults to the active sprite's size; result is
+  drawn via the existing `draw_pixels` path (**no new plugin command**) at `at_x`/`at_y` on a
+  `Reference` layer. Pure core in `src/reference.rs` (downscale/snap/transparency/area, 7
+  tests) reusing `color_ops` CIELAB; pure live helpers (target/palette/grid validation, 4
+  tests). **No new dependency**; source-size guard reads dimensions before decode so a huge
+  PNG can't OOM; PNG-only input + Sobel grid auto-detect / auto-palette are SPEC-006 Phase 2.
+  83 unit tests pass; clippy adds no new lints.
 - **SPEC-005 Phase 4 — `live_save_preview` Set-of-Mark numbered regions (`marks_from`).**
   Overlay numbered badges on regions and return a `marks:[{n, region, bbox}]` map so the
   critic can say "region 3 has a stray pixel" and the orchestrator maps `3 → that
