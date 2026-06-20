@@ -7,12 +7,16 @@
 
 local PROTOCOL = "aseprite-live-edit"
 local VERSION = 1
-local PLUGIN_VERSION = "0.3.1"
+local PLUGIN_VERSION = "0.3.2"
 -- Optional capability flags advertised via get_capabilities. The wire protocol
 -- VERSION stays 1 (existing commands keep working across plugin builds); new
 -- command families like tilemaps are gated by feature flags + the loud
 -- "unsupported_command" reply older plugins give, not by a breaking version bump.
-local FEATURES = { "tilemap", "color_ops" }
+-- "perception2" (SPEC-005): this build reports the active cel's `bounds` in
+-- save_preview, so the server's crop="cel" preview works; the gutter / region-crop /
+-- inline-image / Set-of-Mark perception features are otherwise server-side and need no
+-- plugin support, so a client can check this one flag to know crop="cel" is available.
+local FEATURES = { "tilemap", "color_ops", "perception2" }
 
 local CONFIG = {
     host = "127.0.0.1",
@@ -720,13 +724,21 @@ local function handle_save_preview(cmd)
     local img = Image(spr.width, spr.height, ColorMode.RGB)
     img:drawSprite(spr, frame_number)
     img:saveAs(filename)
-    return ok_response(cmd.id, {
+    local resp = {
         changed = true,
         filename = filename,
         frame = frame_number,
         width = img.width,
         height = img.height,
-    })
+    }
+    -- SPEC-005 Phase 2: report the active cel's bounds (read-only) so the server can
+    -- crop the preview to the subject (crop="cel"). Absent when the active layer/frame
+    -- has no cel; the server then degrades loudly rather than guessing a region.
+    if app.cel then
+        local b = app.cel.bounds
+        resp.cel = { x = b.x, y = b.y, width = b.width, height = b.height }
+    end
+    return ok_response(cmd.id, resp)
 end
 
 local function handle_close_sprite(cmd)
