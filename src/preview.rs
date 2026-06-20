@@ -146,6 +146,54 @@ pub fn render_preview_buffer(
     ))
 }
 
+/// Byte ceiling for the inline MCP image-content return (SPEC-005 Phase 3 / ADR-0007):
+/// a PNG larger than this degrades to a path + note rather than base64-inlining it, so
+/// a big sheet can't blow the model's context budget. 1 MiB of PNG ≈ ~1.4 MiB base64 —
+/// generous for an upscaled pixel-art preview, which is usually tens of KB.
+pub const INLINE_MAX_BYTES: u64 = 1_048_576;
+
+/// Outcome of preparing a PNG for inline return.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlinePng {
+    /// The file is within the ceiling; the base64 of its bytes (for `image/png`).
+    Ready(String),
+    /// The file exceeds the ceiling; carries its size so the caller can explain the
+    /// degrade-to-path note.
+    TooLarge(u64),
+}
+
+/// Standard RFC 4648 base64 (with `=` padding) of `bytes`. Hand-rolled to keep the
+/// crate's dependency tree lean (the only thing the inline return needs from base64 is
+/// encode), and unit-tested against the RFC's known vectors.
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[(n >> 18 & 0x3f) as usize] as char);
+        out.push(ALPHABET[(n >> 12 & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6 & 0x3f) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[(n & 0x3f) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Read the PNG at `path` and prepare it for an inline image-content block: `Ready`
+/// (base64) when within `max_bytes`, `TooLarge` when over (caller degrades to path +
+/// note), or `Err` when it can't be read. Pure file-in so it's unit-tested.
+pub fn read_inline_png(path: &Path, max_bytes: u64) -> Result<InlinePng, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("failed to read preview {} for inline return: {e}", path.display()))?;
+    if bytes.len() as u64 > max_bytes {
+        return Ok(InlinePng::TooLarge(bytes.len() as u64));
+    }
+    Ok(InlinePng::Ready(base64_encode(&bytes)))
+}
+
 /// Decode the PNG at `src`, nearest-neighbor upscale it by `requested_scale`
 /// (or [`auto_preview_scale`] when `None`), and write the result as a PNG to
 /// `dst`. Pure file-in / file-out so it can be exercised without Aseprite.
@@ -226,6 +274,76 @@ mod tests {
 
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
+    }
+
+    /// Reference base64 decode for the round-trip test only (production needs encode).
+    fn base64_decode(s: &str) -> Vec<u8> {
+        fn val(c: u8) -> Option<u32> {
+            match c {
+                b'A'..=b'Z' => Some((c - b'A') as u32),
+                b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+                b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+                b'+' => Some(62),
+                b'/' => Some(63),
+                _ => None,
+            }
+        }
+        let mut out = Vec::new();
+        for chunk in s.as_bytes().chunks(4) {
+            let n = |i: usize| chunk.get(i).copied().and_then(val).unwrap_or(0);
+            let pad = chunk.iter().filter(|&&c| c == b'=').count();
+            let triple = (n(0) << 18) | (n(1) << 12) | (n(2) << 6) | n(3);
+            out.push((triple >> 16) as u8);
+            if pad < 2 {
+                out.push((triple >> 8) as u8);
+            }
+            if pad < 1 {
+                out.push(triple as u8);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn base64_encode_matches_rfc4648_vectors() {
+        // RFC 4648 §10 test vectors pin the encoder (incl. 1- and 2-byte padding).
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        // Round-trips arbitrary bytes (incl. the high bit) through the local decoder.
+        let raw: Vec<u8> = (0u8..=255).collect();
+        assert_eq!(base64_decode(&base64_encode(&raw)), raw);
+    }
+
+    #[test]
+    fn read_inline_png_round_trips_and_guards_size() {
+        // A small PNG within the ceiling round-trips: base64 decodes back to the same
+        // image dimensions (the "valid image/png content block" acceptance check).
+        let dir = std::env::temp_dir();
+        let src = dir.join("aseprite_mcp_inline_src.png");
+        let img = RgbaImage::from_pixel(12, 9, Rgba([3, 4, 5, 255]));
+        img.save_with_format(&src, image::ImageFormat::Png).unwrap();
+        let file_len = std::fs::metadata(&src).unwrap().len();
+
+        match read_inline_png(&src, INLINE_MAX_BYTES).unwrap() {
+            InlinePng::Ready(b64) => {
+                let bytes = base64_decode(&b64);
+                let back = image::load_from_memory(&bytes).unwrap();
+                assert_eq!((back.width(), back.height()), (12, 9));
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+
+        // A ceiling below the file size degrades to TooLarge carrying the real size.
+        assert_eq!(read_inline_png(&src, 1).unwrap(), InlinePng::TooLarge(file_len));
+        // A missing file is an error, not a panic.
+        assert!(read_inline_png(&dir.join("aseprite_mcp_inline_missing.png"), INLINE_MAX_BYTES).is_err());
+
+        let _ = std::fs::remove_file(&src);
     }
 
     #[test]

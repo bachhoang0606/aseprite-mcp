@@ -1,11 +1,13 @@
 # SPEC-005 — Perception fast-follow (gutter + region-crop + inline image + Set-of-Mark)
 
-- Status: **Phases 1–2 landed (2026-06-20)** — Phase 1: the gutter compositor
+- Status: **Phases 1–3 landed (2026-06-20)** — Phase 1: the gutter compositor
   (`src/gutter.rs`) is wired onto `live_save_preview` via the pure `live::finish_preview`
   (on by default, exact coordinate inversion). Phase 2: region crop (`crop`:
   `"sprite"`/`"cel"`/`{x,y,width,height}`) — crop-then-scale + gutter labels in
   absolute sprite coords; offline-verified, `crop="cel"` pending a live plugin-reload
-  verify. Phases 3–4 (inline image / Set-of-Mark) still Draft (2026-06-17). Roadmap item #1
+  verify. Phase 3: `inline:true` returns the PNG as an MCP `image/png` content block
+  (ADR-0007), path always present, byte-ceiling degrade. Phase 4 (Set-of-Mark) still
+  Draft (2026-06-17). Roadmap item #1
   ("Preview overhaul") fast-follow: the nearest-neighbor **upscale** already landed
   (`live_save_preview` + `src/preview.rs`); this spec ships the **remaining three
   legs** of that item — a **coordinate gutter**, **cel-bbox region crop**, and
@@ -15,8 +17,9 @@
 - Owner: project
 - Checklist items advanced: 1.x (perception/preview surface), 2.x (new live-tool
   options), 9.x (deterministic perception tests — gutter math, crop math, mark map)
-- Related ADRs: ADR-0007 (proposed — inline-image content return + gutter/mark
-  rendering conventions; see Behaviour §Decisions)
+- Related ADRs: [ADR-0007](../docs/adr/0007-inline-image-content.md) (Accepted
+  2026-06-20 — inline-image content return: opt-in, path-always-present, byte-ceiling
+  degrade, hand-rolled base64)
 - Source: research doc [`docs/research/agent-pixel-art-techniques.md`](../docs/research/agent-pixel-art-techniques.md)
   §A (VLMs-are-Blind: in-grid text labels ~double grid-geometry accuracy; AdaZoom /
   MEGA-GUI ~1000px grounding → crop the cel bbox first; SketchAgent coordinate
@@ -146,6 +149,25 @@ image content, hence the ADR. Keep the path in the text part for clients that pr
 it / for the auto-preview hook. Size-guard: skip inline (fall back to path + a note)
 above a byte ceiling so a huge sheet can't blow the context budget.
 
+**Phase 3 — implemented (2026-06-20, [ADR-0007](../docs/adr/0007-inline-image-content.md)).**
+`inline?: bool` on `LiveSavePreviewParams`. `live_save_preview` now returns
+`Result<CallToolResult, McpError>` (the first image-emitting tool); the no-inline wire
+shape (one text block with the JSON sidecar) is byte-identical to before, so the
+auto-preview hook and non-vision clients are unaffected. Decisions:
+- *Pure assembly seam.* `LiveBridge::save_preview` still returns the JSON string; the
+  image concern lives at the server boundary (`build_preview_call_result`), and the
+  file-read + size-guard + encode is the pure `preview::read_inline_png` →
+  `InlinePng::{Ready(base64), TooLarge(bytes)}`, unit-tested without the bridge.
+- *Byte-ceiling degrade.* Over `INLINE_MAX_BYTES` (1 MiB PNG ≈ ~1.4 MiB base64) the
+  result appends a text note (size + path) instead of the image; a read error degrades
+  the same way. The path is always present — never a silent truncation.
+- *Base64 is hand-rolled* (`preview::base64_encode`, pinned to RFC 4648 vectors), not a
+  new dependency — keeps the dep tree lean and avoids a Windows-SAC relink block on the
+  test binary (adding a crate to `Cargo.toml` trips os error 4551; a code-only rebuild
+  does not).
+- *Deferred:* `live_get_tileset` / `live_save_filmstrip` can reuse `read_inline_png` +
+  `build_preview_call_result` verbatim, but the acceptance scope is `live_save_preview`.
+
 ### Phase 4 — Set-of-Mark numbered regions
 Overlay numbered marks on regions and return a mark→region map. Region source
 (`marks_from`): **slices** (named, authored — best), **layers** (one mark per visible
@@ -194,9 +216,13 @@ SoM). No SAM/ML — pixel art segments for free by slice/layer/component.
       bounds parsing/clamp/old-plugin degrade are unit-tested (`resolve_crop_plan`,
       `rect_to_crop`, `cel_crop_from_response`, `clamp_crop`). 87 unit tests pass; clippy
       adds no new lints. **Live-verify of `crop="cel"` pending a plugin reload.**
-- [ ] Phase 3: `inline=true` returns a valid `image/png` content block decodable back
-      to the preview dimensions; over the byte ceiling it degrades to path + note;
-      the schema-contract test covers the new param and the crate compiles clippy-clean.
+- [x] Phase 3: `inline=true` returns a valid `image/png` content block — `read_inline_png`
+      base64s the PNG (`base64_encode` pinned to RFC 4648 vectors; the round-trip test
+      decodes back to the preview dimensions); over `INLINE_MAX_BYTES` it degrades to
+      `TooLarge` → path + note; the schema-contract test covers `inline` (in
+      `LiveSavePreviewParams`) and the crate is clippy-clean. `live_save_preview` returns
+      `Result<CallToolResult, McpError>` ([ADR-0007](../docs/adr/0007-inline-image-content.md)).
+      89 unit tests pass.
 - [ ] Phase 4: `marks_from=slices` on a sliced sprite returns one mark per slice with
       correct centroid + bbox and a mark→name map; badge colour is neutral; the
       mark→region inversion is exact (unit-tested on a synthetic layout).

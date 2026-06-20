@@ -194,6 +194,11 @@ pub struct LiveSavePreviewParams {
     /// origin is reported back (`crop`) and the gutter labels read absolute sprite
     /// coordinates, so any (x,y) still inverts exactly.
     pub crop: Option<LiveCrop>,
+    /// Also return the PNG as an inline image-content block (base64 `image/png`) so a
+    /// vision client sees the pixels directly, not just a path (SPEC-005 Phase 3). The
+    /// path is always present too. A preview larger than the byte ceiling degrades to
+    /// path-only with a note, so a huge sheet can't blow the context budget.
+    pub inline: Option<bool>,
 }
 
 /// `crop` selector for `live_save_preview`: a mode string (`"cel"` / `"sprite"`) or
