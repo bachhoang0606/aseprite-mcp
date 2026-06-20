@@ -15,9 +15,12 @@
 //!
 //! [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 //!
-//! Phase 1 ships this pure compositor; the live tool that wires it onto
-//! `live_save_preview` (SPEC-005 Phase 2/3) consumes the public surface, which the
-//! unit tests below exercise until then.
+//! Phase 1 ships this pure compositor and wires it onto `live_save_preview`
+//! (`live::finish_preview`): the preview is upscaled, then — on by default whenever
+//! the tick spacing is legible — composited with this gutter before the PNG is
+//! written, and the band extents go into the result sidecar so the agent can invert
+//! any (x,y) it names. `preview_to_source` documents that inversion for callers and
+//! is exercised by the tests below.
 #![allow(dead_code)]
 
 use crate::color_ops;
@@ -144,6 +147,38 @@ pub fn pick_label_color(palette: &[color_ops::Rgba]) -> color_ops::Rgba {
     best
 }
 
+/// Upper bound on distinct colours sampled for the label-colour pick. Pixel art is
+/// small-paletted, so this is only a defensive ceiling on the ΔE work for a stray
+/// photographic source.
+const PALETTE_SAMPLE_CAP: usize = 256;
+
+/// Sample the distinct opaque colours of the (already upscaled) preview `img`, one
+/// sample per source cell by stepping `scale` px, so [`pick_label_color`] can steer
+/// the gutter label off the sprite's own colours (research §A: a red marker on red
+/// pixels confused the model). Fully-transparent pixels are ignored; sampling stops
+/// at [`PALETTE_SAMPLE_CAP`] distinct colours.
+pub fn sprite_palette(img: &RgbaImage, scale: u32) -> Vec<color_ops::Rgba> {
+    let scale = scale.max(1);
+    let mut seen = std::collections::HashSet::new();
+    let mut palette = Vec::new();
+    let mut y = 0;
+    while y < img.height() {
+        let mut x = 0;
+        while x < img.width() {
+            let p = img.get_pixel(x, y).0;
+            if p[3] != 0 && seen.insert([p[0], p[1], p[2]]) {
+                palette.push(color_ops::Rgba::rgb(p[0], p[1], p[2]));
+                if palette.len() >= PALETTE_SAMPLE_CAP {
+                    return palette;
+                }
+            }
+            x += scale;
+        }
+        y += scale;
+    }
+    palette
+}
+
 fn put(img: &mut RgbaImage, x: u32, y: u32, color: Rgba<u8>) {
     if x < img.width() && y < img.height() {
         img.put_pixel(x, y, color);
@@ -185,8 +220,10 @@ pub struct GutterInfo {
 /// Composite a labelled coordinate gutter (top + left) around an already-upscaled
 /// preview `img`. `scale` is the integer upscale factor used to produce `img`;
 /// `step` is the source-px tick spacing; `palette` (sprite colours) steers the
-/// off-art label colour. Returns the bigger image + the band extents, or an error if
-/// the tick density would be unreadable (`step * scale < MIN_TICK_PX`).
+/// off-art label colour. Returns the bigger image + the band extents, or an error
+/// when the tick spacing (`step * scale`) cannot fit the rendered labels legibly —
+/// the floor is `MIN_TICK_PX` *and* the widest/tallest label box, so multi-digit
+/// labels at a small `step`/large `scale` can't silently collide.
 pub fn render_with_gutter(
     img: &RgbaImage,
     scale: u32,
@@ -195,13 +232,6 @@ pub fn render_with_gutter(
 ) -> Result<(RgbaImage, GutterInfo), String> {
     let scale = scale.max(1);
     let step = step.max(1);
-    if step * scale < MIN_TICK_PX {
-        return Err(format!(
-            "gutter tick spacing {}px (step {step} × scale {scale}) is below the {MIN_TICK_PX}px \
-             legibility floor — raise the preview scale or the gutter step, or crop first",
-            step * scale
-        ));
-    }
     let (pw, ph) = (img.width(), img.height());
     if pw == 0 || ph == 0 {
         return Err(format!("gutter source has a zero dimension ({pw}x{ph})"));
@@ -212,9 +242,28 @@ pub fn render_with_gutter(
     let fs = label_font_scale(scale);
     let xticks = tick_positions(src_w, step);
     let yticks = tick_positions(src_h, step);
+    let max_x_label = *xticks.last().unwrap_or(&0);
+    let max_y_label = *yticks.last().unwrap_or(&0);
+
+    // Legibility floor. Ticks sit `step * scale` px apart in preview space and labels
+    // are centred on them, so the gutter is only readable when that spacing also clears
+    // the label box: the widest x-label must not overlap its neighbour, and a stacked
+    // y-label must not overlap vertically. Gating on raw density (`step * scale`) alone
+    // lets multi-digit labels collide at a small step / large scale — an unreadable
+    // gutter is worse than none (research §A) — so fold the label extent into the floor.
+    let spacing = step * scale;
+    let widest_label = label_width(max_x_label, fs).max(label_width(max_y_label, fs));
+    let tallest_label = GLYPH_H * fs;
+    let floor = MIN_TICK_PX.max(widest_label + fs).max(tallest_label + fs);
+    if spacing < floor {
+        return Err(format!(
+            "gutter tick spacing {spacing}px (step {step} × scale {scale}) is below the {floor}px \
+             legibility floor (labels up to {widest_label}px wide / {tallest_label}px tall) — \
+             raise the preview scale or the gutter step, or crop first"
+        ));
+    }
 
     // Band extents: top fits a label row + a tick stub; left fits the widest y-label.
-    let max_y_label = *yticks.last().unwrap_or(&0);
     let left_w = label_width(max_y_label, fs) + 3 * fs; // label + tick stub + pad
     let top_h = GLYPH_H * fs + 3 * fs; // label + tick stub + pad
 
@@ -351,6 +400,21 @@ mod tests {
     }
 
     #[test]
+    fn refuses_when_multidigit_labels_would_overlap() {
+        // src 110x4 upscaled 12x. step 2 -> 24px spacing CLEARS the raw MIN_TICK_PX
+        // floor, but the largest x-label is "108" which at fs=3 is 33px wide and would
+        // overlap its neighbour — the label-extent floor must still refuse it.
+        assert!(24 >= MIN_TICK_PX, "precondition: raw density alone would pass");
+        let img = RgbaImage::from_pixel(1320, 48, Rgba([10, 20, 30, 255]));
+        assert!(
+            render_with_gutter(&img, 12, 2, &[]).is_err(),
+            "24px spacing must be refused when a 33px label would overlap"
+        );
+        // Widen the step: 48px spacing clears the ~36px label floor -> OK.
+        assert!(render_with_gutter(&img, 12, 4, &[]).is_ok());
+    }
+
+    #[test]
     fn render_grows_the_image_and_blits_the_art_unchanged() {
         // 4x4 source upscaled 16x = 64x64 preview, distinct corner colours.
         let scale = 16u32;
@@ -373,6 +437,31 @@ mod tests {
         }
         // The gutter bands are filled (not transparent).
         assert_eq!(*out.get_pixel(0, 0), BAND_BG);
+    }
+
+    #[test]
+    fn sprite_palette_collects_distinct_opaque_colours() {
+        // A 2x2 source upscaled 4x: each 4x4 block is one solid colour; transparent
+        // pixels are skipped; duplicates collapse.
+        let scale = 4u32;
+        let mut img = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 0, 0])); // transparent
+        let red = Rgba([200, 30, 20, 255]);
+        let blue = Rgba([20, 30, 200, 255]);
+        for dy in 0..scale {
+            for dx in 0..scale {
+                img.put_pixel(dx, dy, red); // top-left cell
+                img.put_pixel(scale + dx, dy, red); // top-right cell, same colour
+                img.put_pixel(dx, scale + dy, blue); // bottom-left cell
+                // bottom-right cell stays transparent
+            }
+        }
+        let pal = sprite_palette(&img, scale);
+        assert_eq!(pal.len(), 2, "two distinct opaque colours expected: {pal:?}");
+        assert!(pal.contains(&color_ops::Rgba::rgb(200, 30, 20)));
+        assert!(pal.contains(&color_ops::Rgba::rgb(20, 30, 200)));
+        // A fully-transparent buffer yields no palette (pick falls back to a default).
+        let blank = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 0, 0]));
+        assert!(sprite_palette(&blank, scale).is_empty());
     }
 
     #[test]

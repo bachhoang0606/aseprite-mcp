@@ -170,8 +170,16 @@ impl AsepriteServer {
             upscaled so the sprite's long edge lands near ~1024px. Raw 1x previews of small sprites \
             are below the resolution a vision model can read reliably, so use THIS (not \
             live_save_copy_as) whenever an agent needs to SEE its own work. Pass an integer `scale` \
-            to override, or omit it for an automatic factor (capped at 16x). Returns the source size, \
-            chosen scale, and preview size so preview pixels map back to sprite coordinates."
+            to override, or omit it for an automatic factor (capped at 16x). By default the preview \
+            gets a labelled coordinate gutter (numeric ticks along the top + left) so you can name \
+            the exact source (x,y) of a pixel to fix. Check `gutter_applied` in the result: when \
+            true, invert with source_x = (preview_x - gutter.left_w) / scale and source_y = \
+            (preview_y - gutter.top_h) / scale; when false (suppressed, or auto-degraded on a sprite \
+            too large for a legible gutter — see `gutter_skipped`) the file is the bare upscaled art, \
+            so source_x = preview_x / scale and source_y = preview_y / scale. Set `gutter:false` to \
+            suppress it, `gutter:true` to require it (errors if illegible), or tune `gutter_step` \
+            (default 8 source-px). Returns source size, chosen scale, preview size, and (when drawn) \
+            the gutter band extents — so preview pixels map back to sprite coordinates exactly."
     )]
     async fn live_save_preview(
         &self,

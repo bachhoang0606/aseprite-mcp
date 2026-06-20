@@ -25,7 +25,21 @@
   **inverts back to an exact source coordinate** for `live_draw_pixels`. Refuses a
   tick density below the legibility floor (`step × scale < 24px`). **7 unit tests**
   (inversion identity, off-palette pick, density refusal, byte-faithful art blit).
-  Wiring it onto `live_save_preview` is SPEC-005 Phase 2/3. See SPEC-005 / research §A.
+  See SPEC-005 / research §A.
+- **SPEC-005 Phase 1 — gutter wired onto `live_save_preview` (on by default).** The
+  preview is upscaled to an in-memory buffer (`preview::render_preview_buffer`), then —
+  whenever the tick spacing is legible at the chosen scale — composited with the
+  coordinate gutter before the PNG is written. New `gutter` / `gutter_step` options:
+  `gutter:false` suppresses it, `gutter:true` requires it (loud `gutter_unreadable`
+  refusal if illegible), and the default quietly degrades to a plain preview with a
+  `gutter_skipped` note. The result JSON gains `gutter_applied` plus a `gutter`
+  `{left_w, top_h, step, image}` sidecar so any (x,y) read off the preview inverts
+  exactly (`source = (preview − {left_w,top_h}) / scale`). The legibility floor now
+  also rejects spacings where multi-digit labels would overlap, and the label colour
+  is steered off the sprite's own sampled colours (`gutter::sprite_palette`). Pure
+  helpers `live::finish_preview` + `gutter::sprite_palette` unit-tested (transparent
+  art, explicit-require success/refusal, default degrade, write-failure, label-overlap
+  refusal). No plugin change — works with any connected plugin version.
 
   [VLMs are Blind]: https://arxiv.org/abs/2407.06581
 - **SPEC-004 Phases 2–4 — live constrained/semantic colour tools (Path 2).** Three

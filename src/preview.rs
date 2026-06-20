@@ -51,14 +51,16 @@ pub fn clamp_scale_to_max_edge(width: u32, height: u32, scale: u32) -> u32 {
     scale.clamp(1, max_by_edge)
 }
 
-/// Decode the PNG at `src`, nearest-neighbor upscale it by `requested_scale`
-/// (or [`auto_preview_scale`] when `None`), and write the result as a PNG to
-/// `dst`. Pure file-in / file-out so it can be exercised without Aseprite.
-pub fn render_preview(
+/// Decode the PNG at `src` and nearest-neighbor upscale it by `requested_scale`
+/// (or [`auto_preview_scale`] when `None`) into an **in-memory** RGBA buffer (no
+/// file write), returning the buffer + the chosen [`PreviewInfo`]. Callers that
+/// want to composite annotations (a coordinate gutter, Set-of-Mark badges) onto
+/// the upscaled art *before* writing use this; [`render_preview`] is this plus a
+/// PNG write. Pure (file-in / buffer-out) so it stays unit-testable without Aseprite.
+pub fn render_preview_buffer(
     src: &Path,
-    dst: &Path,
     requested_scale: Option<u32>,
-) -> Result<PreviewInfo, String> {
+) -> Result<(image::RgbaImage, PreviewInfo), String> {
     let img = image::open(src)
         .map_err(|e| format!("failed to decode preview source {}: {e}", src.display()))?;
     let (w, h) = (img.width(), img.height());
@@ -77,16 +79,31 @@ pub fn render_preview(
     } else {
         image::imageops::resize(&rgba, w * scale, h * scale, image::imageops::FilterType::Nearest)
     };
+
+    Ok((
+        out,
+        PreviewInfo {
+            source_width: w,
+            source_height: h,
+            scale,
+            preview_width: w * scale,
+            preview_height: h * scale,
+        },
+    ))
+}
+
+/// Decode the PNG at `src`, nearest-neighbor upscale it by `requested_scale`
+/// (or [`auto_preview_scale`] when `None`), and write the result as a PNG to
+/// `dst`. Pure file-in / file-out so it can be exercised without Aseprite.
+pub fn render_preview(
+    src: &Path,
+    dst: &Path,
+    requested_scale: Option<u32>,
+) -> Result<PreviewInfo, String> {
+    let (out, info) = render_preview_buffer(src, requested_scale)?;
     out.save_with_format(dst, image::ImageFormat::Png)
         .map_err(|e| format!("failed to write preview {}: {e}", dst.display()))?;
-
-    Ok(PreviewInfo {
-        source_width: w,
-        source_height: h,
-        scale,
-        preview_width: w * scale,
-        preview_height: h * scale,
-    })
+    Ok(info)
 }
 
 #[cfg(test)]

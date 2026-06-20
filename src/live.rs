@@ -178,6 +178,15 @@ pub struct LiveSavePreviewParams {
     /// Integer nearest-neighbor upscale factor. Omit to auto-pick one that lands
     /// the sprite's long edge near ~1024px (capped at 16x).
     pub scale: Option<u32>,
+    /// Overlay a labelled coordinate gutter (numeric ticks along the top and left)
+    /// so the agent can read off and name the exact source (x,y) of a pixel to fix.
+    /// Defaults on whenever the tick spacing is legible at the chosen scale; pass
+    /// `false` to suppress it. Pass `true` to require it — that errors if the sprite
+    /// is too large for a legible gutter (raise `scale` or crop first), whereas the
+    /// default quietly falls back to a plain preview with a `gutter_skipped` note.
+    pub gutter: Option<bool>,
+    /// Source-px between gutter ticks (default 8). Ignored when `gutter` is `false`.
+    pub gutter_step: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -776,23 +785,14 @@ impl LiveBridge {
         self.command("save_preview", None, Some(json!({ "filename": temp_str })))
             .await?;
 
-        // 2) Upscale in-process; clean up the temp regardless of outcome.
-        let info = crate::preview::render_preview(
-            &temp,
-            std::path::Path::new(&params.filename),
-            params.scale,
-        );
+        // 2) Upscale in-process to a buffer; clean up the temp regardless of outcome.
+        let rendered = crate::preview::render_preview_buffer(&temp, params.scale);
         let _ = std::fs::remove_file(&temp);
-        let info = info.map_err(|e| live_error("preview_render_failed", &e, None))?;
+        let (buffer, info) = rendered.map_err(|e| live_error("preview_render_failed", &e, None))?;
 
-        Ok(json!({
-            "changed": true,
-            "filename": params.filename,
-            "scale": info.scale,
-            "source": { "width": info.source_width, "height": info.source_height },
-            "preview": { "width": info.preview_width, "height": info.preview_height },
-        })
-        .to_string())
+        // 3) Optionally composite a labelled coordinate gutter, then write the PNG.
+        //    Pure (buffer-in / path-out) so the gutter wiring is unit-tested below.
+        finish_preview(buffer, info, &params.filename, params.gutter, params.gutter_step)
     }
 
     /// Return the active frame as a one-glyph-per-pixel TEXT grid (+ legend), which
@@ -2422,6 +2422,82 @@ fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), St
     Ok(())
 }
 
+/// Composite the optional coordinate gutter onto the upscaled preview `buffer`,
+/// write the PNG to `dst`, and build the result JSON (SPEC-005 Phase 1). Pure
+/// (buffer-in / path-out, no bridge) so the gutter policy — default-on-when-legible,
+/// loud refusal for an explicit `gutter:true` that cannot be drawn legibly, and a
+/// graceful `gutter_skipped` degrade otherwise — is unit-tested without Aseprite.
+///
+/// The sidecar reports `gutter.left_w`/`top_h` + `scale` so any (x,y) the agent
+/// reads off the labelled preview inverts exactly: `source_x = (px - left_w) / scale`.
+fn finish_preview(
+    buffer: image::RgbaImage,
+    info: crate::preview::PreviewInfo,
+    dst: &str,
+    gutter: Option<bool>,
+    gutter_step: Option<u32>,
+) -> Result<String, String> {
+    let step = gutter_step.unwrap_or(crate::gutter::DEFAULT_GUTTER_STEP);
+    let explicit = gutter == Some(true);
+    let mut gutter_json = Value::Null;
+    let mut gutter_skipped: Option<String> = None;
+
+    let final_buffer = if gutter == Some(false) {
+        buffer
+    } else {
+        let palette = crate::gutter::sprite_palette(&buffer, info.scale);
+        match crate::gutter::render_with_gutter(&buffer, info.scale, step, &palette) {
+            Ok((composited, gi)) => {
+                gutter_json = json!({
+                    "left_w": gi.left_w,
+                    "top_h": gi.top_h,
+                    "step": gi.step,
+                    "image": { "width": gi.out_width, "height": gi.out_height },
+                });
+                composited
+            }
+            // An explicit request that can't be drawn legibly is a loud refusal with
+            // guidance (raise scale / crop); a default one degrades to a plain preview.
+            Err(e) if explicit => {
+                return Err(live_error("gutter_unreadable", &e, None));
+            }
+            Err(e) => {
+                gutter_skipped = Some(e);
+                buffer
+            }
+        }
+    };
+
+    final_buffer
+        .save_with_format(std::path::Path::new(dst), image::ImageFormat::Png)
+        .map_err(|e| {
+            live_error(
+                "preview_render_failed",
+                &format!("failed to write preview {dst}: {e}"),
+                None,
+            )
+        })?;
+
+    // `gutter_applied` is the machine-readable signal an orchestrator checks before
+    // inverting a coordinate: true -> source = (preview - {left_w,top_h}) / scale;
+    // false (suppressed or degraded) -> the file is the bare art, source = preview / scale.
+    let mut out = json!({
+        "changed": true,
+        "filename": dst,
+        "scale": info.scale,
+        "source": { "width": info.source_width, "height": info.source_height },
+        "preview": { "width": info.preview_width, "height": info.preview_height },
+        "gutter_applied": !gutter_json.is_null(),
+    });
+    if !gutter_json.is_null() {
+        out["gutter"] = gutter_json;
+    }
+    if let Some(reason) = gutter_skipped {
+        out["gutter_skipped"] = json!(reason);
+    }
+    Ok(out.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2434,6 +2510,143 @@ mod tests {
         assert!(validate_preview_request("preview.png", Some(8)).is_ok());
         let err = validate_preview_request("preview.png", Some(0)).unwrap_err();
         assert!(err.contains("invalid_scale"), "got: {err}");
+    }
+
+    // ---- finish_preview (SPEC-005 Phase 1 gutter wiring) -------------------------
+
+    fn preview_buffer(src_w: u32, src_h: u32, scale: u32) -> (image::RgbaImage, crate::preview::PreviewInfo) {
+        let (pw, ph) = (src_w * scale, src_h * scale);
+        // A non-trivial colour so sprite_palette has something to steer off.
+        let buf = image::RgbaImage::from_pixel(pw, ph, image::Rgba([40, 90, 160, 255]));
+        let info = crate::preview::PreviewInfo {
+            source_width: src_w,
+            source_height: src_h,
+            scale,
+            preview_width: pw,
+            preview_height: ph,
+        };
+        (buf, info)
+    }
+
+    fn unique_preview_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aseprite_mcp_finish_preview_{tag}_{}.png",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn finish_preview_default_draws_a_legible_gutter() {
+        // 4x4 source at 16x = 64x64 preview; step 8 -> 128px tick spacing (legible).
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("legible");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(v["scale"], json!(16));
+        assert_eq!(v["preview"]["width"], json!(64));
+        assert_eq!(v["gutter_applied"], json!(true));
+        assert!(v.get("gutter_skipped").is_none(), "should not skip: {out}");
+        let g = &v["gutter"];
+        assert!(g["left_w"].as_u64().unwrap() > 0);
+        assert!(g["top_h"].as_u64().unwrap() > 0);
+        assert_eq!(g["step"], json!(8));
+
+        // The written PNG is the gutter'd (larger) image, matching the reported dims.
+        let png = image::open(&dst).unwrap();
+        assert_eq!(png.width(), g["image"]["width"].as_u64().unwrap() as u32);
+        assert_eq!(png.height(), g["image"]["height"].as_u64().unwrap() as u32);
+        assert!(png.width() > 64 && png.height() > 64, "gutter must grow the image");
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_default_degrades_when_gutter_is_unreadable() {
+        // 16x16 source at 1x; step 8 -> 8px spacing < 24 floor -> skip, keep preview.
+        let (buf, info) = preview_buffer(16, 16, 1);
+        let dst = unique_preview_path("degrade");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(v["gutter_applied"], json!(false));
+        assert!(v.get("gutter").is_none(), "no gutter expected: {out}");
+        assert!(v["gutter_skipped"].is_string(), "expected a skip note: {out}");
+
+        // The written PNG is the bare upscaled preview (no gutter growth).
+        let png = image::open(&dst).unwrap();
+        assert_eq!((png.width(), png.height()), (16, 16));
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_explicit_gutter_refuses_loudly_when_unreadable() {
+        // Same too-dense case, but gutter:true -> hard error, no file policy change.
+        let (buf, info) = preview_buffer(16, 16, 1);
+        let dst = unique_preview_path("refuse");
+        let err = finish_preview(buf, info, &dst.to_string_lossy(), Some(true), None).unwrap_err();
+        assert!(err.contains("gutter_unreadable"), "got: {err}");
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_gutter_false_writes_bare_preview() {
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("off");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(false));
+        assert!(v.get("gutter").is_none());
+        assert!(v.get("gutter_skipped").is_none());
+
+        let png = image::open(&dst).unwrap();
+        assert_eq!((png.width(), png.height()), (64, 64));
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_explicit_gutter_true_succeeds_when_legible() {
+        // The success twin of the refusal test: gutter:true on a legible scale draws.
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("explicit_ok");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(true), None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(true));
+        assert!(v["gutter"]["left_w"].as_u64().unwrap() > 0);
+        let png = image::open(&dst).unwrap();
+        assert!(png.width() > 64 && png.height() > 64);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_transparent_sprite_still_draws_a_gutter() {
+        // Empty palette (fully transparent art) must not break pick_label_color — it
+        // falls back to a default candidate — and the gutter still composites + writes.
+        let buf = image::RgbaImage::from_pixel(64, 64, image::Rgba([0, 0, 0, 0]));
+        let info = crate::preview::PreviewInfo {
+            source_width: 4,
+            source_height: 4,
+            scale: 16,
+            preview_width: 64,
+            preview_height: 64,
+        };
+        let dst = unique_preview_path("transparent");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(true), "got: {out}");
+        assert!(image::open(&dst).is_ok());
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_reports_write_failure_loudly() {
+        // An unwritable dst (parent dir does not exist) surfaces preview_render_failed
+        // rather than panicking. Deterministic + cross-platform: the dir is never created.
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = std::env::temp_dir()
+            .join("aseprite_mcp_finish_preview_nodir_xyz")
+            .join("out.png");
+        let err = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None).unwrap_err();
+        assert!(err.contains("preview_render_failed"), "got: {err}");
     }
 
     #[test]
