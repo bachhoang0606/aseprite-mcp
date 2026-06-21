@@ -64,6 +64,7 @@
 | 5.4 | `/pixel-export` PNG/GIF/spritesheet + JSON meta | 3 | Game-engine ready output |
 | 5.5 | `/pixel-palette` set/optimize/load presets | 3 | Lospec presets supported |
 | 5.6 | `/pixel-review` critique against the rules | 3 | Scored report w/ fixes |
+| 5.7 | `/pixel-reference-motion` rotoscope video/GIF/frames → animation | 3 | Per-frame reference layer traced, drift-free film-strip |
 
 ## 6. Subagents — weight 8
 | # | Item | Now | DoD |

@@ -131,6 +131,31 @@ pub struct LivePixel {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveImportReferenceParams {
+    /// Path to a **PNG** reference image on disk (convert other formats to PNG first).
+    pub filename: String,
+    /// Target grid width in pixels. Omit to use the active sprite's width.
+    pub width: Option<u32>,
+    /// Target grid height in pixels. Omit to use the active sprite's height.
+    pub height: Option<u32>,
+    /// Downscale method: "dominant" (per-cell majority, edge-preserving — default) or
+    /// "average" (per-cell mean of opaque pixels).
+    pub method: Option<String>,
+    /// Explicit palette to snap to (a list of `#rrggbb`). Omit to snap to the active
+    /// sprite palette.
+    pub palette: Option<Vec<String>>,
+    /// Set `false` to skip palette snapping and keep the downscaled source colours.
+    pub snap: Option<bool>,
+    /// Target layer for the imported pixels. Defaults to "Reference".
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit to use the active frame.
+    pub frame: Option<u32>,
+    /// Top-left placement of the import on the canvas (default 0,0).
+    pub at_x: Option<i32>,
+    pub at_y: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveUseToolParams {
     /// Tool name: pencil, line, rectangle, filled_rectangle, ellipse, filled_ellipse, paint_bucket, or eraser.
     pub tool: String,
@@ -178,6 +203,59 @@ pub struct LiveSavePreviewParams {
     /// Integer nearest-neighbor upscale factor. Omit to auto-pick one that lands
     /// the sprite's long edge near ~1024px (capped at 16x).
     pub scale: Option<u32>,
+    /// Overlay a labelled coordinate gutter (numeric ticks along the top and left)
+    /// so the agent can read off and name the exact source (x,y) of a pixel to fix.
+    /// Defaults on whenever the tick spacing is legible at the chosen scale; pass
+    /// `false` to suppress it. Pass `true` to require it — that errors if the sprite
+    /// is too large for a legible gutter (raise `scale` or crop first), whereas the
+    /// default quietly falls back to a plain preview with a `gutter_skipped` note.
+    pub gutter: Option<bool>,
+    /// Source-px between gutter ticks (default 8). Ignored when `gutter` is `false`.
+    pub gutter_step: Option<u32>,
+    /// Region to preview, so the upscale budget lands on the subject (SPEC-005
+    /// Phase 2): `"sprite"` (whole canvas, default), `"cel"` (the active cel's bbox —
+    /// a small cel on a big canvas then fills ~1024px instead of a few), or an explicit
+    /// `{ "x", "y", "width", "height" }` rectangle in sprite coordinates. The crop
+    /// origin is reported back (`crop`) and the gutter labels read absolute sprite
+    /// coordinates, so any (x,y) still inverts exactly.
+    pub crop: Option<LiveCrop>,
+    /// Also return the PNG as an inline image-content block (base64 `image/png`) so a
+    /// vision client sees the pixels directly, not just a path (SPEC-005 Phase 3). The
+    /// path is always present too. A preview larger than the byte ceiling degrades to
+    /// path-only with a note, so a huge sheet can't blow the context budget.
+    pub inline: Option<bool>,
+    /// Overlay numbered Set-of-Mark badges on the preview and return a `marks`
+    /// `[{n, region, bbox}]` map (SPEC-005 Phase 4): `"slices"` (one badge per named
+    /// slice — best, authored), `"layers"` (one per visible layer's cel at the active
+    /// frame), or `"components"` (one per connected opaque blob). The critic can then say
+    /// "region 3 has a stray pixel" and the orchestrator maps `3 → that slice/layer/blob`
+    /// — no fragile free-form coordinates.
+    pub marks_from: Option<LiveMarksFrom>,
+}
+
+/// `crop` selector for `live_save_preview`: a mode string (`"cel"` / `"sprite"`) or
+/// an explicit source-space rectangle.
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum LiveCrop {
+    /// `"cel"` (active cel bbox) or `"sprite"` (whole canvas — the default).
+    Mode(String),
+    /// Explicit pixel rectangle `{x, y, width, height}` in sprite coordinates.
+    Rect(LiveRect),
+}
+
+/// Region source for Set-of-Mark numbered badges (SPEC-005 Phase 4). All three reuse
+/// existing read-only plugin enumeration (`list_slices` / `list_cels`) or a pure-Rust
+/// connected-component pass — no new plugin command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LiveMarksFrom {
+    /// One badge per named slice (authored regions — most meaningful).
+    Slices,
+    /// One badge per visible layer's cel bbox at the active frame.
+    Layers,
+    /// One badge per 4-connected opaque blob (pure-Rust, no plugin read).
+    Components,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -213,7 +291,7 @@ pub struct LiveResizeCanvasParams {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct LiveRect {
     pub x: i32,
     pub y: i32,
@@ -760,6 +838,9 @@ impl LiveBridge {
     /// never touched, so this adds no undo entries and needs no plugin redeploy.
     pub async fn save_preview(&self, params: LiveSavePreviewParams) -> Result<String, String> {
         validate_preview_request(&params.filename, params.scale)?;
+        // Resolve (and validate) the crop selector up front — an explicit bad rect or
+        // an unknown mode fails fast, before the bridge round-trip.
+        let plan = resolve_crop_plan(&params.crop)?;
 
         // 1) Render the active frame to a single-frame PNG in the system temp dir
         // (NOT the user's project tree), so a hard crash between save and cleanup
@@ -767,32 +848,59 @@ impl LiveBridge {
         // distinct. The plugin's `save_preview` renders the active frame into a
         // standalone Image and Image:saveAs's it — this is modal-free even on a
         // multi-frame sprite (ADR-0004), unlike `save_copy_as`/saveCopyAs which
-        // pops Aseprite's "format doesn't support multiple frames" dialog.
+        // pops Aseprite's "format doesn't support multiple frames" dialog. The same
+        // response also carries the active cel's bounds (for crop="cel").
         let temp = std::env::temp_dir().join(format!(
             "aseprite_mcp_preview_{}.png",
             self.next_id.fetch_add(1, Ordering::Relaxed)
         ));
         let temp_str = temp.to_string_lossy().to_string();
-        self.command("save_preview", None, Some(json!({ "filename": temp_str })))
+        let resp = self
+            .command("save_preview", None, Some(json!({ "filename": temp_str })))
             .await?;
 
-        // 2) Upscale in-process; clean up the temp regardless of outcome.
-        let info = crate::preview::render_preview(
-            &temp,
-            std::path::Path::new(&params.filename),
-            params.scale,
-        );
-        let _ = std::fs::remove_file(&temp);
-        let info = info.map_err(|e| live_error("preview_render_failed", &e, None))?;
+        // 2) Resolve the crop rect (crop="cel" needs the plugin's reported bounds), then
+        //    upscale in-process to a buffer; clean up the temp regardless of outcome.
+        let crop = match plan {
+            CropPlan::Whole => None,
+            CropPlan::Explicit(c) => Some(c),
+            CropPlan::Cel => Some(cel_crop_from_response(&resp)?),
+        };
 
-        Ok(json!({
-            "changed": true,
-            "filename": params.filename,
-            "scale": info.scale,
-            "source": { "width": info.source_width, "height": info.source_height },
-            "preview": { "width": info.preview_width, "height": info.preview_height },
-        })
-        .to_string())
+        // 2b) Gather Set-of-Mark regions (SPEC-005 Phase 4). Slices/layers need read-only
+        //     bridge enumeration (done here, before the temp is consumed); components are
+        //     computed from the rendered buffer inside finish_preview. The active frame for
+        //     the layer cels comes from the save_preview response.
+        let marks = match params.marks_from {
+            None => MarksInput::None,
+            Some(LiveMarksFrom::Components) => MarksInput::Components,
+            Some(LiveMarksFrom::Slices) => {
+                MarksInput::Regions(parse_slice_regions(&self.list_slices().await?))
+            }
+            Some(LiveMarksFrom::Layers) => {
+                let frame = active_frame_from_response(&resp);
+                let cels = self
+                    .list_cels(LiveListCelsParams { layer: None, frame: Some(frame) })
+                    .await?;
+                let layers = self.list_layers().await?;
+                MarksInput::Regions(parse_layer_regions(&cels, &layers))
+            }
+        };
+
+        let rendered = crate::preview::render_preview_buffer(&temp, params.scale, crop);
+        let _ = std::fs::remove_file(&temp);
+        let (buffer, info) = rendered.map_err(|e| live_error("preview_render_failed", &e, None))?;
+
+        // 3) Optionally composite a labelled coordinate gutter + numbered marks, then
+        //    write the PNG. Pure (buffer-in / path-out) so it is all unit-tested below.
+        finish_preview(
+            buffer,
+            info,
+            &params.filename,
+            params.gutter,
+            params.gutter_step,
+            marks,
+        )
     }
 
     /// Return the active frame as a one-glyph-per-pixel TEXT grid (+ legend), which
@@ -1318,6 +1426,134 @@ impl LiveBridge {
             Some(json!({ "pixels": params.pixels })),
         )
         .await
+    }
+
+    /// Import a reference PNG as palette-locked pixel art on a layer (SPEC-006). Decodes
+    /// the reference, content-aware downscales it to the target grid + snaps to a palette
+    /// (pure `reference` core), then draws the result onto `layer` via the `draw_pixels`
+    /// path — no new plugin command. The live document is the only thing mutated.
+    pub async fn import_reference(
+        &self,
+        params: LiveImportReferenceParams,
+    ) -> Result<String, String> {
+        validate_non_empty("filename", &params.filename)?;
+        let method = crate::reference::Method::parse(params.method.as_deref().unwrap_or("dominant"))
+            .map_err(|e| live_error("invalid_method", &e, None))?;
+
+        // Guard the source size BEFORE the full decode (a huge PNG would OOM at decode).
+        let decode_err = |e: &dyn std::fmt::Display| {
+            live_error(
+                "reference_decode_failed",
+                &format!("failed to read PNG '{}': {e} (convert other formats to PNG first)", params.filename),
+                None,
+            )
+        };
+        let dims = image::ImageReader::open(&params.filename)
+            .map_err(|e| decode_err(&e))?
+            .into_dimensions()
+            .map_err(|e| decode_err(&e))?;
+        let cap = crate::reference::MAX_SOURCE_EDGE;
+        if dims.0 > cap || dims.1 > cap {
+            return Err(live_error(
+                "reference_too_large",
+                &format!("reference {}x{} exceeds the {cap}px decode cap — downscale it first", dims.0, dims.1),
+                None,
+            ));
+        }
+
+        // Decode the reference (PNG only — `image` is built png-only).
+        let img = image::open(&params.filename)
+            .map_err(|e| {
+                live_error(
+                    "reference_decode_failed",
+                    &format!("failed to read PNG '{}': {e} (convert other formats to PNG first)", params.filename),
+                    None,
+                )
+            })?
+            .to_rgba8();
+        let (sw, sh) = (img.width(), img.height());
+        if sw == 0 || sh == 0 {
+            return Err(live_error(
+                "invalid_reference",
+                &format!("reference has a zero dimension ({sw}x{sh})"),
+                None,
+            ));
+        }
+
+        // Resolve the target grid: explicit, else the active sprite's size.
+        let (tw, th) = match (params.width, params.height) {
+            (Some(w), Some(h)) => (w, h),
+            _ => {
+                let info: Value =
+                    serde_json::from_str(&self.get_sprite_info().await?).unwrap_or(Value::Null);
+                let sprite_w = info.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let sprite_h = info.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                (params.width.unwrap_or(sprite_w), params.height.unwrap_or(sprite_h))
+            }
+        };
+        validate_target_dims(tw, th)?;
+
+        // Resolve the palette: explicit list, the active palette, or none (snap off).
+        let snap = params.snap.unwrap_or(true);
+        let palette: Option<Vec<Rgba>> = if !snap {
+            None
+        } else if let Some(hexes) = &params.palette {
+            Some(parse_hex_palette(hexes)?)
+        } else {
+            Some(self.fetch_active_palette().await?)
+        };
+
+        // Pure core: downscale + snap.
+        let grid = crate::reference::downscale_to_grid(&img, tw, th, palette.as_deref(), method);
+        let (ax, ay) = (params.at_x.unwrap_or(0), params.at_y.unwrap_or(0));
+        let pixels = grid_to_pixels(&grid, ax, ay);
+        if pixels.is_empty() {
+            return Err(live_error(
+                "empty_result",
+                "the downscaled reference is fully transparent — nothing to draw",
+                None,
+            ));
+        }
+        let drawn = pixels.len();
+        let distinct = crate::reference::distinct_colors(&grid);
+
+        // Draw onto the target layer via the existing path.
+        let layer = params.layer.unwrap_or_else(|| "Reference".to_string());
+        self.draw_pixels(LiveDrawPixelsParams {
+            pixels,
+            layer: Some(layer.clone()),
+            frame: params.frame,
+        })
+        .await?;
+
+        Ok(json!({
+            "changed": true,
+            "layer": layer,
+            "source": { "width": sw, "height": sh },
+            "target": { "width": tw, "height": th },
+            "factor": (sw.max(sh) as f64 / tw.max(th).max(1) as f64),
+            "method": if method == crate::reference::Method::Average { "average" } else { "dominant" },
+            "palette_size": palette.as_ref().map(|p| p.len()),
+            "pixels_drawn": drawn,
+            "distinct_colors": distinct,
+        })
+        .to_string())
+    }
+
+    /// Fetch the active sprite's full palette as `color_ops::Rgba` (for import snapping).
+    async fn fetch_active_palette(&self) -> Result<Vec<Rgba>, String> {
+        let resp = self
+            .list_palette(LiveListPaletteParams { palette: None, from: Some(0), limit: Some(256) })
+            .await?;
+        let palette = parse_palette_colors(&resp);
+        if palette.is_empty() {
+            return Err(live_error(
+                "no_palette",
+                "the active sprite has no palette to snap to — pass `palette` or set snap:false",
+                None,
+            ));
+        }
+        Ok(palette)
     }
 
     pub async fn use_tool(&self, params: LiveUseToolParams) -> Result<String, String> {
@@ -2408,6 +2644,75 @@ fn validate_identifier(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Reject a non-positive or oversized `import_reference` target — bounds the one
+/// `draw_pixels` batch the import produces. Pure → unit-testable.
+fn validate_target_dims(tw: u32, th: u32) -> Result<(), String> {
+    if tw == 0 || th == 0 {
+        return Err(live_error(
+            "invalid_target",
+            &format!("target size must be positive (got {tw}x{th}); no active sprite to size from?"),
+            None,
+        ));
+    }
+    let cap = crate::reference::MAX_TARGET_EDGE;
+    if tw > cap || th > cap {
+        return Err(live_error(
+            "target_too_large",
+            &format!("target {tw}x{th} exceeds the {cap}px import cap — choose a smaller width/height"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+/// Parse an explicit `#rrggbb`(`aa`) palette list into `color_ops::Rgba`. Pure.
+fn parse_hex_palette(hexes: &[String]) -> Result<Vec<Rgba>, String> {
+    if hexes.is_empty() {
+        return Err(live_error("invalid_palette", "palette is empty", None));
+    }
+    let mut out = Vec::with_capacity(hexes.len());
+    for h in hexes {
+        out.push(Rgba::from_hex(h).map_err(|e| {
+            live_error("invalid_color", &format!("invalid palette colour '{h}': {e}"), None)
+        })?);
+    }
+    Ok(out)
+}
+
+/// Parse a `list_palette` response (`{colors:[{color:{red,green,blue,alpha}}]}`) into
+/// opaque `color_ops::Rgba`. Pure.
+fn parse_palette_colors(resp: &str) -> Vec<Rgba> {
+    let v: Value = serde_json::from_str(resp).unwrap_or(Value::Null);
+    let mut out = Vec::new();
+    if let Some(colors) = v.get("colors").and_then(|c| c.as_array()) {
+        for c in colors {
+            let col = c.get("color");
+            let f = |k: &str| col.and_then(|x| x.get(k)).and_then(|n| n.as_u64()).unwrap_or(0) as u8;
+            out.push(Rgba::rgb(f("red"), f("green"), f("blue")));
+        }
+    }
+    out
+}
+
+/// Convert the downscaled grid to a `draw_pixels` batch (skips fully-transparent cells),
+/// offset by `(ax, ay)`. Pure → unit-tested.
+fn grid_to_pixels(grid: &image::RgbaImage, ax: i32, ay: i32) -> Vec<LivePixel> {
+    let mut pixels = Vec::new();
+    for oy in 0..grid.height() {
+        for ox in 0..grid.width() {
+            let p = grid.get_pixel(ox, oy).0;
+            if p[3] != 0 {
+                pixels.push(LivePixel {
+                    x: ax + ox as i32,
+                    y: ay + oy as i32,
+                    color: format!("#{:02x}{:02x}{:02x}", p[0], p[1], p[2]),
+                });
+            }
+        }
+    }
+    pixels
+}
+
 /// Validate `live_save_preview` inputs without touching the bridge, so the guard
 /// is unit-testable: an empty filename or an explicit `scale` of 0 is rejected.
 fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), String> {
@@ -2422,6 +2727,463 @@ fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), St
     Ok(())
 }
 
+/// What region a preview should cover, after validating the `crop` selector but before
+/// the bridge round-trip. `Cel` is resolved later from the plugin's reported bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CropPlan {
+    Whole,
+    Cel,
+    Explicit(crate::preview::Crop),
+}
+
+/// Validate the `crop` selector and turn it into a [`CropPlan`] (SPEC-005 Phase 2).
+/// Pure — unit-tested without the bridge. `"sprite"`/absent = whole canvas; `"cel"` =
+/// defer to the active cel's bounds; an explicit rect is validated here.
+fn resolve_crop_plan(crop: &Option<LiveCrop>) -> Result<CropPlan, String> {
+    match crop {
+        None => Ok(CropPlan::Whole),
+        Some(LiveCrop::Mode(m)) => match m.as_str() {
+            "sprite" => Ok(CropPlan::Whole),
+            "cel" => Ok(CropPlan::Cel),
+            other => Err(live_error(
+                "invalid_crop",
+                &format!(
+                    "crop must be \"cel\", \"sprite\", or {{x,y,width,height}} (got \"{other}\")"
+                ),
+                None,
+            )),
+        },
+        Some(LiveCrop::Rect(r)) => Ok(CropPlan::Explicit(rect_to_crop(r)?)),
+    }
+}
+
+/// Validate an explicit crop rectangle and convert it to a [`crate::preview::Crop`]
+/// (non-negative origin, positive size). Far-edge clamping happens in `preview`.
+fn rect_to_crop(r: &LiveRect) -> Result<crate::preview::Crop, String> {
+    if r.x < 0 || r.y < 0 {
+        return Err(live_error(
+            "invalid_crop",
+            &format!("crop origin ({},{}) must be non-negative", r.x, r.y),
+            None,
+        ));
+    }
+    if r.width == 0 || r.height == 0 {
+        return Err(live_error(
+            "invalid_crop",
+            "crop width and height must be positive",
+            None,
+        ));
+    }
+    Ok(crate::preview::Crop {
+        x: r.x as u32,
+        y: r.y as u32,
+        width: r.width,
+        height: r.height,
+    })
+}
+
+/// Build a crop from the active cel's bounds in a `save_preview` response (SPEC-005
+/// Phase 2). A negative cel origin is clamped to the canvas (reducing the size). Absent
+/// bounds — an empty active layer/frame, or a plugin that predates the report — is a
+/// loud degrade (ADR-0005), never a silent guess. Pure → unit-tested.
+fn cel_crop_from_response(resp: &str) -> Result<crate::preview::Crop, String> {
+    let v: Value = serde_json::from_str(resp).unwrap_or(Value::Null);
+    let cel = match v.get("cel") {
+        Some(c) if c.is_object() => c,
+        _ => {
+            return Err(live_error(
+                "cel_bounds_unavailable",
+                "crop=\"cel\" needs the active cel's bounds, but none were reported — the \
+                 active layer/frame may be empty, or the connected Aseprite plugin predates \
+                 cel-bounds reporting. Use crop:\"sprite\", an explicit {x,y,width,height}, or \
+                 select a non-empty cel.",
+                None,
+            ));
+        }
+    };
+    let field = |k: &str| cel.get(k).and_then(|n| n.as_i64()).unwrap_or(0);
+    let (gx, gy, cw, ch) = (field("x"), field("y"), field("width"), field("height"));
+    // Clamp a negative origin to the canvas, shrinking the size to the visible part.
+    let x0 = gx.max(0);
+    let y0 = gy.max(0);
+    let w = gx + cw - x0;
+    let h = gy + ch - y0;
+    if w <= 0 || h <= 0 {
+        return Err(live_error(
+            "cel_bounds_unavailable",
+            "the active cel has no visible area on the canvas to crop to",
+            None,
+        ));
+    }
+    Ok(crate::preview::Crop {
+        x: x0 as u32,
+        y: y0 as u32,
+        width: w as u32,
+        height: h as u32,
+    })
+}
+
+/// Upper bound on rendered Set-of-Mark badges, so a noisy sprite (hundreds of tiny
+/// connected components) can't bury the art in overlapping badge boxes. Past this the
+/// largest regions are kept and `marks_truncated` reports the true total.
+const MAX_MARKS: usize = 64;
+
+/// Set-of-Mark region source, resolved by `save_preview` (SPEC-005 Phase 4): explicit
+/// source-space `Regions` (slices / layer cels read from the bridge) or `Components`
+/// (computed from the rendered buffer here). `None` = no marks.
+enum MarksInput {
+    None,
+    Regions(Vec<crate::marks::Region>),
+    Components,
+}
+
+/// Composite the optional coordinate gutter (SPEC-005 Phase 1) and optional Set-of-Mark
+/// numbered badges (Phase 4) onto the upscaled preview `buffer`, write the PNG to `dst`,
+/// and build the result JSON. Pure (buffer-in / path-out, no bridge) so the gutter policy
+/// (default-on-when-legible, loud `gutter:true` refusal, graceful `gutter_skipped`
+/// degrade) and the mark placement are unit-tested without Aseprite.
+///
+/// The sidecar reports `gutter.left_w`/`top_h` + `scale` so any (x,y) the agent reads off
+/// the labelled preview inverts exactly, plus `marks: [{n, region, bbox}]` mapping each
+/// badge to its source-space region.
+fn finish_preview(
+    buffer: image::RgbaImage,
+    info: crate::preview::PreviewInfo,
+    dst: &str,
+    gutter: Option<bool>,
+    gutter_step: Option<u32>,
+    marks: MarksInput,
+) -> Result<String, String> {
+    let step = gutter_step.unwrap_or(crate::gutter::DEFAULT_GUTTER_STEP);
+    let explicit = gutter == Some(true);
+    let mut gutter_json = Value::Null;
+    let mut gutter_skipped: Option<String> = None;
+
+    // Palette steers both the gutter labels and the badge text off the sprite's colours.
+    let palette = crate::gutter::sprite_palette(&buffer, info.scale);
+
+    // Resolve mark regions to source space BEFORE the gutter consumes `buffer`. Components
+    // run the connected-component pass at SOURCE resolution (reconstructed from the bare
+    // upscaled buffer by sampling one px per block — exact, and avoids a CC over the up-to-
+    // 67M-px upscaled buffer), then offset by the crop origin so bboxes are full-sprite.
+    let regions: Vec<crate::marks::Region> = match &marks {
+        MarksInput::None => Vec::new(),
+        MarksInput::Regions(r) => r.clone(),
+        MarksInput::Components => {
+            let source = downsample_by_scale(&buffer, info.scale);
+            crate::marks::connected_components(&source)
+                .into_iter()
+                .enumerate()
+                .map(|(i, r)| crate::marks::Region {
+                    name: format!("component-{}", i + 1),
+                    bbox: crate::marks::MarkRect {
+                        x: info.crop_x + r.x,
+                        y: info.crop_y + r.y,
+                        width: r.width,
+                        height: r.height,
+                    },
+                })
+                .collect()
+        }
+    };
+
+    let mut final_buffer = if gutter == Some(false) {
+        buffer
+    } else {
+        // Labels read ABSOLUTE sprite coords (offset by the crop origin), so an agent
+        // reads the real (x,y) off the gutter even on a cropped preview.
+        match crate::gutter::render_with_gutter_at(
+            &buffer,
+            info.scale,
+            step,
+            info.crop_x,
+            info.crop_y,
+            &palette,
+        ) {
+            Ok((composited, gi)) => {
+                gutter_json = json!({
+                    "left_w": gi.left_w,
+                    "top_h": gi.top_h,
+                    "step": gi.step,
+                    "image": { "width": gi.out_width, "height": gi.out_height },
+                });
+                composited
+            }
+            // An explicit request that can't be drawn legibly is a loud refusal with
+            // guidance (raise scale / crop); a default one degrades to a plain preview.
+            Err(e) if explicit => {
+                return Err(live_error("gutter_unreadable", &e, None));
+            }
+            Err(e) => {
+                gutter_skipped = Some(e);
+                buffer
+            }
+        }
+    };
+
+    // Keep only regions whose centre falls inside the previewed crop window, THEN number
+    // them — so every emitted mark has a visible badge and numbering is contiguous (a
+    // slice outside a cel crop gets neither a badge nor an orphan number). Components are
+    // already in-window by construction.
+    let mut in_window: Vec<crate::marks::Region> = regions
+        .into_iter()
+        .filter(|r| {
+            let (scx, scy) = r.bbox.center();
+            scx >= info.crop_x
+                && scy >= info.crop_y
+                && scx < info.crop_x + info.source_width
+                && scy < info.crop_y + info.source_height
+        })
+        .collect();
+    // Cap the number of badges so a noisy sprite (hundreds of tiny components) can't bury
+    // the art in overlapping boxes; keep the largest regions and report how many were cut.
+    let total_regions = in_window.len();
+    let marks_truncated = total_regions > MAX_MARKS;
+    if marks_truncated {
+        in_window.sort_by_key(|r| std::cmp::Reverse((r.bbox.width as u64) * (r.bbox.height as u64)));
+        in_window.truncate(MAX_MARKS);
+    }
+    let placed = crate::marks::assign_marks(&in_window);
+
+    // Draw a badge at each region centroid (in final-image space, offset by the gutter
+    // band when present). The returned `[{n, region, bbox}]` lets the orchestrator map any
+    // mark the critic names back to its source region.
+    let band = gutter_json
+        .get("left_w")
+        .and_then(|v| v.as_u64())
+        .map(|lw| (lw as u32, gutter_json["top_h"].as_u64().unwrap_or(0) as u32))
+        .unwrap_or((0, 0));
+    if !placed.is_empty() {
+        let fg = crate::gutter::pick_label_color(&palette);
+        let fg_px = image::Rgba([fg.r, fg.g, fg.b, 255]);
+        let fs = crate::marks::badge_font_scale(info.scale);
+        for m in &placed {
+            let (scx, scy) = m.bbox.center();
+            let px = band.0 + (scx - info.crop_x) * info.scale + info.scale / 2;
+            let py = band.1 + (scy - info.crop_y) * info.scale + info.scale / 2;
+            crate::marks::draw_badge(&mut final_buffer, px, py, m.n, fs, fg_px);
+        }
+    }
+
+    final_buffer
+        .save_with_format(std::path::Path::new(dst), image::ImageFormat::Png)
+        .map_err(|e| {
+            live_error(
+                "preview_render_failed",
+                &format!("failed to write preview {dst}: {e}"),
+                None,
+            )
+        })?;
+
+    // `gutter_applied` is the machine-readable signal an orchestrator checks before
+    // inverting a coordinate: true -> source = crop.{x,y} + (preview - {left_w,top_h}) /
+    // scale; false (suppressed/degraded) -> the bare art, source = crop.{x,y} + preview /
+    // scale. `crop` is the previewed region's origin (0,0 uncropped); `source` is its size.
+    let mut out = json!({
+        "changed": true,
+        "filename": dst,
+        "scale": info.scale,
+        "source": { "width": info.source_width, "height": info.source_height },
+        "crop": { "x": info.crop_x, "y": info.crop_y },
+        "preview": { "width": info.preview_width, "height": info.preview_height },
+        "gutter_applied": !gutter_json.is_null(),
+    });
+    if !gutter_json.is_null() {
+        out["gutter"] = gutter_json;
+    }
+    if let Some(reason) = gutter_skipped {
+        out["gutter_skipped"] = json!(reason);
+    }
+    // `marks` is present (possibly `[]`) whenever marks were requested, so an orchestrator
+    // can tell "requested, none found" from "not requested". When more regions than
+    // `MAX_MARKS` were found, only the largest are badged and `marks_truncated` reports the
+    // true total.
+    if !matches!(marks, MarksInput::None) {
+        out["marks"] = Value::Array(
+            placed
+                .iter()
+                .map(|m| {
+                    json!({
+                        "n": m.n,
+                        "region": m.region,
+                        "bbox": { "x": m.bbox.x, "y": m.bbox.y, "width": m.bbox.width, "height": m.bbox.height },
+                    })
+                })
+                .collect(),
+        );
+        if marks_truncated {
+            out["marks_truncated"] = json!(total_regions);
+        }
+    }
+    Ok(out.to_string())
+}
+
+/// Reconstruct the source-resolution image from a nearest-neighbor `scale`× upscaled
+/// `buf` by sampling the top-left pixel of each block (exact: `buf[x,y] = src[x/scale,
+/// y/scale]`). Lets the connected-component pass run cheaply at source resolution instead
+/// of over the upscaled buffer, and yields source-space bboxes directly.
+fn downsample_by_scale(buf: &image::RgbaImage, scale: u32) -> image::RgbaImage {
+    let scale = scale.max(1);
+    let (sw, sh) = (buf.width() / scale, buf.height() / scale);
+    let mut out = image::RgbaImage::new(sw.max(1), sh.max(1));
+    for sy in 0..sh {
+        for sx in 0..sw {
+            out.put_pixel(sx, sy, *buf.get_pixel(sx * scale, sy * scale));
+        }
+    }
+    out
+}
+
+/// Active frame number from a `save_preview` response (the plugin reports `frame`);
+/// defaults to 1 if absent. Used to pick the layer cels for `marks_from="layers"`.
+fn active_frame_from_response(resp: &str) -> u32 {
+    serde_json::from_str::<Value>(resp)
+        .ok()
+        .and_then(|v| v.get("frame").and_then(|f| f.as_u64()))
+        .unwrap_or(1) as u32
+}
+
+/// Parse `list_slices` output into source-space mark regions (SPEC-005 Phase 4). Each
+/// named slice with a bounds rect becomes one region; slices without bounds are skipped.
+/// Pure → unit-tested.
+fn parse_slice_regions(resp: &str) -> Vec<crate::marks::Region> {
+    let v: Value = serde_json::from_str(resp).unwrap_or(Value::Null);
+    let mut out = Vec::new();
+    if let Some(slices) = v.get("slices").and_then(|s| s.as_array()) {
+        for s in slices {
+            if let Some(bbox) = rect_from_json(s.get("bounds")) {
+                let name = s
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .filter(|n| !n.is_empty())
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| format!("slice-{}", out.len() + 1));
+                out.push(crate::marks::Region { name, bbox });
+            }
+        }
+    }
+    out
+}
+
+/// Parse `list_cels` (active frame) + `list_layers` (visibility) into one region per
+/// VISIBLE layer's cel bbox (SPEC-005 Phase 4). A cel's bbox is its position + image size;
+/// cels on hidden layers (or with no image) are skipped. Pure → unit-tested.
+fn parse_layer_regions(cels_resp: &str, layers_resp: &str) -> Vec<crate::marks::Region> {
+    // `None` = visibility couldn't be determined (don't filter); `Some(set)` = the
+    // effectively-visible layer names (an empty set genuinely means "nothing visible").
+    let visible = visible_layer_names(layers_resp);
+    let v: Value = serde_json::from_str(cels_resp).unwrap_or(Value::Null);
+    let mut out = Vec::new();
+    // Disambiguate duplicate layer names so the mark→name map stays human-usable
+    // (Aseprite allows two layers to share a name).
+    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    if let Some(cels) = v.get("cels").and_then(|c| c.as_array()) {
+        for c in cels {
+            let layer = c.get("layer").and_then(|n| n.as_str()).unwrap_or("");
+            if let Some(set) = &visible {
+                if !set.contains(layer) {
+                    continue;
+                }
+            }
+            let (x, y) = (
+                c.get("x").and_then(|n| n.as_i64()).unwrap_or(0),
+                c.get("y").and_then(|n| n.as_i64()).unwrap_or(0),
+            );
+            let img = c.get("image");
+            let (w, h) = (
+                img.and_then(|i| i.get("width")).and_then(|n| n.as_i64()).unwrap_or(0),
+                img.and_then(|i| i.get("height")).and_then(|n| n.as_i64()).unwrap_or(0),
+            );
+            if w <= 0 || h <= 0 {
+                continue;
+            }
+            let x0 = x.max(0);
+            let y0 = y.max(0);
+            let w = x + w - x0;
+            let h = y + h - y0;
+            if w <= 0 || h <= 0 {
+                continue;
+            }
+            let base = if layer.is_empty() {
+                format!("layer-{}", out.len() + 1)
+            } else {
+                layer.to_string()
+            };
+            let count = name_counts.entry(base.clone()).or_insert(0);
+            *count += 1;
+            let name = if *count > 1 { format!("{base} #{count}") } else { base };
+            out.push(crate::marks::Region {
+                name,
+                bbox: crate::marks::MarkRect {
+                    x: x0 as u32,
+                    y: y0 as u32,
+                    width: w as u32,
+                    height: h as u32,
+                },
+            });
+        }
+    }
+    out
+}
+
+/// Effectively-visible layer names from `list_layers` output. Returns `None` when the
+/// `layers` key is absent or unparseable (caller then declines to filter), else `Some`
+/// of the names whose own `isVisible` AND every ancestor group's are true — matching what
+/// the preview composite (`img:drawSprite`) actually renders (a layer inside a hidden
+/// group is not drawn, even if its own flag is visible).
+fn visible_layer_names(resp: &str) -> Option<std::collections::HashSet<String>> {
+    fn walk(node: &Value, ancestors_visible: bool, out: &mut std::collections::HashSet<String>) {
+        if let Some(arr) = node.as_array() {
+            for l in arr {
+                walk(l, ancestors_visible, out);
+            }
+            return;
+        }
+        // A layer/group is effectively visible only if it AND all ancestors are visible
+        // (a missing flag defaults to visible — the plugin always reports it).
+        let self_visible = ancestors_visible
+            && node.get("isVisible").and_then(|v| v.as_bool()).unwrap_or(true);
+        if self_visible {
+            if let Some(name) = node.get("name").and_then(|n| n.as_str()) {
+                out.insert(name.to_string());
+            }
+        }
+        // Descend into a group only when the group is itself effectively visible.
+        if let Some(children) = node.get("layers") {
+            walk(children, self_visible, out);
+        }
+    }
+    let v: Value = serde_json::from_str(resp).ok()?;
+    let layers = v.get("layers")?;
+    let mut out = std::collections::HashSet::new();
+    walk(layers, true, &mut out);
+    Some(out)
+}
+
+/// Parse a `{x,y,width,height}` rect (the plugin's `rectangle_info` shape) into a
+/// source-space [`crate::marks::MarkRect`]; `None` if missing or degenerate.
+fn rect_from_json(v: Option<&Value>) -> Option<crate::marks::MarkRect> {
+    let r = v?;
+    let f = |k: &str| r.get(k).and_then(|n| n.as_i64());
+    let (x, y, w, h) = (f("x")?, f("y")?, f("width")?, f("height")?);
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let x0 = x.max(0);
+    let y0 = y.max(0);
+    let w = x + w - x0;
+    let h = y + h - y0;
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    Some(crate::marks::MarkRect {
+        x: x0 as u32,
+        y: y0 as u32,
+        width: w as u32,
+        height: h as u32,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2434,6 +3196,558 @@ mod tests {
         assert!(validate_preview_request("preview.png", Some(8)).is_ok());
         let err = validate_preview_request("preview.png", Some(0)).unwrap_err();
         assert!(err.contains("invalid_scale"), "got: {err}");
+    }
+
+    // ---- import_reference helpers (SPEC-006) ------------------------------------
+
+    #[test]
+    fn validate_target_dims_bounds_the_import() {
+        assert!(validate_target_dims(64, 48).is_ok());
+        assert!(validate_target_dims(0, 32).unwrap_err().contains("invalid_target"));
+        assert!(validate_target_dims(32, 0).unwrap_err().contains("invalid_target"));
+        let cap = crate::reference::MAX_TARGET_EDGE;
+        assert!(validate_target_dims(cap, cap).is_ok());
+        assert!(validate_target_dims(cap + 1, 32).unwrap_err().contains("target_too_large"));
+    }
+
+    #[test]
+    fn parse_hex_palette_parses_and_rejects() {
+        let pal = parse_hex_palette(&["#ff0000".into(), "#00ff00".into()]).unwrap();
+        assert_eq!(pal, vec![Rgba::rgb(255, 0, 0), Rgba::rgb(0, 255, 0)]);
+        assert!(parse_hex_palette(&[]).unwrap_err().contains("invalid_palette"));
+        assert!(parse_hex_palette(&["nothex".into()]).unwrap_err().contains("invalid_color"));
+    }
+
+    #[test]
+    fn parse_palette_colors_reads_list_palette_response() {
+        let resp = json!({
+            "colors": [
+                { "index": 0, "color": { "red": 255, "green": 0, "blue": 0, "alpha": 255 } },
+                { "index": 1, "color": { "red": 16, "green": 32, "blue": 48, "alpha": 255 } },
+            ]
+        }).to_string();
+        assert_eq!(parse_palette_colors(&resp), vec![Rgba::rgb(255, 0, 0), Rgba::rgb(16, 32, 48)]);
+        // No colors array -> empty (caller turns that into a loud no_palette error).
+        assert!(parse_palette_colors("{}").is_empty());
+    }
+
+    #[test]
+    fn grid_to_pixels_skips_transparent_and_offsets() {
+        let mut grid = image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 0]));
+        grid.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        grid.put_pixel(1, 1, image::Rgba([0, 128, 255, 255]));
+        let pixels = grid_to_pixels(&grid, 10, 20);
+        assert_eq!(pixels.len(), 2, "transparent cells skipped");
+        assert_eq!((pixels[0].x, pixels[0].y), (10, 20));
+        assert_eq!(pixels[0].color, "#ff0000");
+        assert_eq!((pixels[1].x, pixels[1].y), (11, 21));
+        assert_eq!(pixels[1].color, "#0080ff");
+        // A fully-transparent grid yields nothing (caller errors empty_result).
+        let blank = image::RgbaImage::from_pixel(3, 3, image::Rgba([0, 0, 0, 0]));
+        assert!(grid_to_pixels(&blank, 0, 0).is_empty());
+    }
+
+    // ---- finish_preview (SPEC-005 Phase 1 gutter wiring) -------------------------
+
+    fn preview_buffer(src_w: u32, src_h: u32, scale: u32) -> (image::RgbaImage, crate::preview::PreviewInfo) {
+        let (pw, ph) = (src_w * scale, src_h * scale);
+        // A non-trivial colour so sprite_palette has something to steer off.
+        let buf = image::RgbaImage::from_pixel(pw, ph, image::Rgba([40, 90, 160, 255]));
+        let info = crate::preview::PreviewInfo {
+            source_width: src_w,
+            source_height: src_h,
+            scale,
+            preview_width: pw,
+            preview_height: ph,
+            crop_x: 0,
+            crop_y: 0,
+        };
+        (buf, info)
+    }
+
+    fn unique_preview_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "aseprite_mcp_finish_preview_{tag}_{}.png",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn finish_preview_default_draws_a_legible_gutter() {
+        // 4x4 source at 16x = 64x64 preview; step 8 -> 128px tick spacing (legible).
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("legible");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(v["scale"], json!(16));
+        assert_eq!(v["preview"]["width"], json!(64));
+        assert_eq!(v["gutter_applied"], json!(true));
+        assert!(v.get("gutter_skipped").is_none(), "should not skip: {out}");
+        let g = &v["gutter"];
+        assert!(g["left_w"].as_u64().unwrap() > 0);
+        assert!(g["top_h"].as_u64().unwrap() > 0);
+        assert_eq!(g["step"], json!(8));
+
+        // The written PNG is the gutter'd (larger) image, matching the reported dims.
+        let png = image::open(&dst).unwrap();
+        assert_eq!(png.width(), g["image"]["width"].as_u64().unwrap() as u32);
+        assert_eq!(png.height(), g["image"]["height"].as_u64().unwrap() as u32);
+        assert!(png.width() > 64 && png.height() > 64, "gutter must grow the image");
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_default_degrades_when_gutter_is_unreadable() {
+        // 16x16 source at 1x; step 8 -> 8px spacing < 24 floor -> skip, keep preview.
+        let (buf, info) = preview_buffer(16, 16, 1);
+        let dst = unique_preview_path("degrade");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+
+        assert_eq!(v["gutter_applied"], json!(false));
+        assert!(v.get("gutter").is_none(), "no gutter expected: {out}");
+        assert!(v["gutter_skipped"].is_string(), "expected a skip note: {out}");
+
+        // The written PNG is the bare upscaled preview (no gutter growth).
+        let png = image::open(&dst).unwrap();
+        assert_eq!((png.width(), png.height()), (16, 16));
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_explicit_gutter_refuses_loudly_when_unreadable() {
+        // Same too-dense case, but gutter:true -> hard error, no file policy change.
+        let (buf, info) = preview_buffer(16, 16, 1);
+        let dst = unique_preview_path("refuse");
+        let err = finish_preview(buf, info, &dst.to_string_lossy(), Some(true), None, MarksInput::None).unwrap_err();
+        assert!(err.contains("gutter_unreadable"), "got: {err}");
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_gutter_false_writes_bare_preview() {
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("off");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(false));
+        assert!(v.get("gutter").is_none());
+        assert!(v.get("gutter_skipped").is_none());
+
+        let png = image::open(&dst).unwrap();
+        assert_eq!((png.width(), png.height()), (64, 64));
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_explicit_gutter_true_succeeds_when_legible() {
+        // The success twin of the refusal test: gutter:true on a legible scale draws.
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("explicit_ok");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(true), None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(true));
+        assert!(v["gutter"]["left_w"].as_u64().unwrap() > 0);
+        let png = image::open(&dst).unwrap();
+        assert!(png.width() > 64 && png.height() > 64);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_transparent_sprite_still_draws_a_gutter() {
+        // Empty palette (fully transparent art) must not break pick_label_color — it
+        // falls back to a default candidate — and the gutter still composites + writes.
+        let buf = image::RgbaImage::from_pixel(64, 64, image::Rgba([0, 0, 0, 0]));
+        let info = crate::preview::PreviewInfo {
+            source_width: 4,
+            source_height: 4,
+            scale: 16,
+            preview_width: 64,
+            preview_height: 64,
+            crop_x: 0,
+            crop_y: 0,
+        };
+        let dst = unique_preview_path("transparent");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(true), "got: {out}");
+        assert!(image::open(&dst).is_ok());
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_reports_write_failure_loudly() {
+        // An unwritable dst (parent dir does not exist) surfaces preview_render_failed
+        // rather than panicking. Deterministic + cross-platform: the dir is never created.
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = std::env::temp_dir()
+            .join("aseprite_mcp_finish_preview_nodir_xyz")
+            .join("out.png");
+        let err = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::None).unwrap_err();
+        assert!(err.contains("preview_render_failed"), "got: {err}");
+    }
+
+    // ---- crop resolution (SPEC-005 Phase 2) -------------------------------------
+
+    #[test]
+    fn resolve_crop_plan_handles_modes_and_rects() {
+        use crate::preview::Crop;
+        assert_eq!(resolve_crop_plan(&None).unwrap(), CropPlan::Whole);
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Mode("sprite".into()))).unwrap(),
+            CropPlan::Whole
+        );
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Mode("cel".into()))).unwrap(),
+            CropPlan::Cel
+        );
+        assert_eq!(
+            resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: 4, y: 6, width: 8, height: 9 }))).unwrap(),
+            CropPlan::Explicit(Crop { x: 4, y: 6, width: 8, height: 9 })
+        );
+        // Unknown mode + negative origin + zero size all rejected with invalid_crop.
+        assert!(resolve_crop_plan(&Some(LiveCrop::Mode("frame".into()))).unwrap_err().contains("invalid_crop"));
+        assert!(resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: -1, y: 0, width: 4, height: 4 }))).unwrap_err().contains("invalid_crop"));
+        assert!(resolve_crop_plan(&Some(LiveCrop::Rect(LiveRect { x: 0, y: 0, width: 0, height: 4 }))).unwrap_err().contains("invalid_crop"));
+    }
+
+    #[test]
+    fn cel_crop_from_response_parses_clamps_and_degrades() {
+        use crate::preview::Crop;
+        // Normal bounds map straight through.
+        let r = json!({ "changed": true, "cel": { "x": 12, "y": 8, "width": 16, "height": 20 } }).to_string();
+        assert_eq!(cel_crop_from_response(&r).unwrap(), Crop { x: 12, y: 8, width: 16, height: 20 });
+        // A negative origin clamps to the canvas, shrinking the size to the visible part.
+        let r = json!({ "cel": { "x": -5, "y": 0, "width": 20, "height": 10 } }).to_string();
+        assert_eq!(cel_crop_from_response(&r).unwrap(), Crop { x: 0, y: 0, width: 15, height: 10 });
+        // No cel reported (old plugin or empty layer) -> loud degrade, not a guess.
+        let r = json!({ "changed": true, "width": 64, "height": 64 }).to_string();
+        assert!(cel_crop_from_response(&r).unwrap_err().contains("cel_bounds_unavailable"));
+        // A cel entirely off-canvas has no visible area.
+        let r = json!({ "cel": { "x": -30, "y": 0, "width": 10, "height": 10 } }).to_string();
+        assert!(cel_crop_from_response(&r).unwrap_err().contains("cel_bounds_unavailable"));
+    }
+
+    // ---- Set-of-Mark region parsing (SPEC-005 Phase 4) --------------------------
+
+    #[test]
+    fn parse_slice_regions_maps_named_bounds() {
+        let resp = json!({
+            "slices": [
+                { "name": "weapon", "bounds": { "x": 20, "y": 4, "width": 6, "height": 14 } },
+                { "name": "head", "bounds": { "x": 0, "y": 0, "width": 8, "height": 8 } },
+                { "name": "nobnds" }, // no bounds -> skipped
+            ]
+        }).to_string();
+        let regions = parse_slice_regions(&resp);
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0], crate::marks::Region {
+            name: "weapon".into(),
+            bbox: crate::marks::MarkRect { x: 20, y: 4, width: 6, height: 14 },
+        });
+        assert_eq!(regions[1].name, "head");
+        // No slices array -> empty (not an error).
+        assert!(parse_slice_regions("{}").is_empty());
+    }
+
+    #[test]
+    fn parse_slice_regions_fallback_names_and_skips_zero_bounds() {
+        let resp = json!({
+            "slices": [
+                { "name": "", "bounds": { "x": 1, "y": 2, "width": 3, "height": 4 } }, // empty name -> slice-1
+                { "name": "z", "bounds": { "x": 0, "y": 0, "width": 0, "height": 5 } }, // zero width -> skipped
+            ]
+        }).to_string();
+        let regions = parse_slice_regions(&resp);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].name, "slice-1");
+        assert_eq!(regions[0].bbox, crate::marks::MarkRect { x: 1, y: 2, width: 3, height: 4 });
+    }
+
+    #[test]
+    fn parse_layer_regions_honours_group_effective_visibility() {
+        // ArmL is visible by its own flag but sits inside a HIDDEN group -> the preview
+        // doesn't render it, so it must NOT be marked.
+        let layers = json!({
+            "layers": [
+                { "name": "Body", "isVisible": true },
+                { "name": "Grp", "isVisible": false, "layers": [
+                    { "name": "ArmL", "isVisible": true }
+                ]},
+            ]
+        }).to_string();
+        let cels = json!({
+            "cels": [
+                { "layer": "Body", "x": 0, "y": 0, "image": { "width": 8, "height": 8 } },
+                { "layer": "ArmL", "x": 4, "y": 4, "image": { "width": 4, "height": 4 } },
+            ]
+        }).to_string();
+        let regions = parse_layer_regions(&cels, &layers);
+        assert_eq!(regions.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Body"]);
+    }
+
+    #[test]
+    fn parse_layer_regions_disambiguates_duplicate_names() {
+        // Two visible layers both named "Body" -> two regions "Body" and "Body #2".
+        let layers = json!({
+            "layers": [
+                { "name": "Body", "isVisible": true },
+                { "name": "Body", "isVisible": true },
+            ]
+        }).to_string();
+        let cels = json!({
+            "cels": [
+                { "layer": "Body", "x": 0, "y": 0, "image": { "width": 8, "height": 8 } },
+                { "layer": "Body", "x": 2, "y": 2, "image": { "width": 4, "height": 4 } },
+            ]
+        }).to_string();
+        let regions = parse_layer_regions(&cels, &layers);
+        assert_eq!(regions.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Body", "Body #2"]);
+    }
+
+    #[test]
+    fn parse_layer_regions_all_hidden_emits_no_marks_but_unparseable_falls_back() {
+        // Every layer hidden -> visible set parsed-but-empty -> NO marks (not "don't filter").
+        let layers = json!({ "layers": [ { "name": "A", "isVisible": false } ] }).to_string();
+        let cels = json!({ "cels": [ { "layer": "A", "x": 0, "y": 0, "image": { "width": 8, "height": 8 } } ] }).to_string();
+        assert!(parse_layer_regions(&cels, &layers).is_empty());
+        // No parseable layers info -> can't determine visibility -> don't filter (fallback).
+        assert_eq!(parse_layer_regions(&cels, "not json").len(), 1);
+        assert_eq!(parse_layer_regions(&cels, "{}").len(), 1);
+    }
+
+    #[test]
+    fn parse_layer_regions_uses_visible_cels_at_frame() {
+        let layers = json!({
+            "layers": [
+                { "name": "Body", "isVisible": true },
+                { "name": "Hidden", "isVisible": false },
+                { "name": "Group", "isVisible": true, "layers": [
+                    { "name": "ArmL", "isVisible": true }
+                ]},
+            ]
+        }).to_string();
+        let cels = json!({
+            "cels": [
+                { "layer": "Body", "frame": 2, "x": 4, "y": 6, "image": { "width": 16, "height": 20 } },
+                { "layer": "Hidden", "frame": 2, "x": 0, "y": 0, "image": { "width": 8, "height": 8 } },
+                { "layer": "ArmL", "frame": 2, "x": 10, "y": 2, "image": { "width": 6, "height": 12 } },
+                { "layer": "Body", "frame": 2, "x": 0, "y": 0, "image": { "width": 0, "height": 0 } }, // empty image -> skip
+            ]
+        }).to_string();
+        let regions = parse_layer_regions(&cels, &layers);
+        // Body + ArmL are visible; Hidden filtered; empty-image cel skipped.
+        let names: Vec<&str> = regions.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["Body", "ArmL"]);
+        assert_eq!(regions[0].bbox, crate::marks::MarkRect { x: 4, y: 6, width: 16, height: 20 });
+        assert_eq!(regions[1].bbox, crate::marks::MarkRect { x: 10, y: 2, width: 6, height: 12 });
+    }
+
+    #[test]
+    fn active_frame_from_response_reads_or_defaults() {
+        assert_eq!(active_frame_from_response(&json!({ "frame": 3 }).to_string()), 3);
+        assert_eq!(active_frame_from_response("{}"), 1);
+        assert_eq!(active_frame_from_response("not json"), 1);
+    }
+
+    #[test]
+    fn downsample_by_scale_reconstructs_source_exactly() {
+        // A 2×2 source upscaled 4x = 8×8 buffer; sampling per block returns the source.
+        let mut src = image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 0]));
+        let a = image::Rgba([200, 30, 20, 255]);
+        let b = image::Rgba([20, 30, 200, 255]);
+        for dy in 0..4 {
+            for dx in 0..4 {
+                src.put_pixel(dx, dy, a); // source (0,0)
+                src.put_pixel(4 + dx, 4 + dy, b); // source (1,1)
+            }
+        }
+        let ds = downsample_by_scale(&src, 4);
+        assert_eq!((ds.width(), ds.height()), (2, 2));
+        assert_eq!(*ds.get_pixel(0, 0), a);
+        assert_eq!(*ds.get_pixel(1, 1), b);
+        assert_eq!(ds.get_pixel(1, 0).0[3], 0); // transparent source cell
+    }
+
+    #[test]
+    fn finish_preview_components_marks_appear_in_json_and_image() {
+        // A 4×4 buffer at 8x with two separated opaque blocks -> 2 components -> 2 marks.
+        let scale = 8u32;
+        let mut buf = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
+        // Block A at source (0,0); block B at source (3,3) (1px each, well separated).
+        for dy in 0..scale {
+            for dx in 0..scale {
+                buf.put_pixel(dx, dy, image::Rgba([200, 30, 20, 255]));
+                buf.put_pixel(3 * scale + dx, 3 * scale + dy, image::Rgba([30, 200, 20, 255]));
+            }
+        }
+        let info = crate::preview::PreviewInfo {
+            source_width: 4, source_height: 4, scale,
+            preview_width: 32, preview_height: 32, crop_x: 0, crop_y: 0,
+        };
+        let dst = unique_preview_path("marks_components");
+        // gutter:false to isolate the mark drawing/JSON from the gutter band.
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::Components).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let marks = v["marks"].as_array().expect("marks array");
+        assert_eq!(marks.len(), 2, "got: {out}");
+        assert_eq!(marks[0]["n"], json!(1));
+        assert_eq!(marks[0]["region"], json!("component-1"));
+        // First component bbox is the source (0,0,1,1) block.
+        assert_eq!(marks[0]["bbox"]["x"], json!(0));
+        assert_eq!(marks[1]["bbox"]["x"], json!(3));
+        // The written PNG exists and carries badge pixels (it's no longer all-transparent
+        // in the gutter band region — badges drew a backing box).
+        assert!(image::open(&dst).is_ok());
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_no_marks_omits_the_field() {
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("no_marks");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("marks").is_none());
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_regions_filters_to_crop_window_and_renumbers() {
+        // Crop window is the whole 8×8 source at 8x. Two regions inside + one outside;
+        // only the in-window ones get marks, numbered 1..2 contiguously.
+        let buf = image::RgbaImage::from_pixel(64, 64, image::Rgba([10, 20, 30, 255]));
+        let info = crate::preview::PreviewInfo {
+            source_width: 8, source_height: 8, scale: 8,
+            preview_width: 64, preview_height: 64, crop_x: 0, crop_y: 0,
+        };
+        let regions = vec![
+            crate::marks::Region { name: "in_a".into(), bbox: crate::marks::MarkRect { x: 1, y: 1, width: 2, height: 2 } },
+            crate::marks::Region { name: "outside".into(), bbox: crate::marks::MarkRect { x: 40, y: 40, width: 4, height: 4 } },
+            crate::marks::Region { name: "in_b".into(), bbox: crate::marks::MarkRect { x: 5, y: 5, width: 2, height: 2 } },
+        ];
+        let dst = unique_preview_path("marks_regions");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::Regions(regions)).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let marks = v["marks"].as_array().unwrap();
+        assert_eq!(marks.len(), 2, "outside-crop region must be filtered: {out}");
+        assert_eq!(marks[0]["region"], json!("in_a"));
+        assert_eq!(marks[0]["n"], json!(1));
+        assert_eq!(marks[1]["region"], json!("in_b"));
+        assert_eq!(marks[1]["n"], json!(2)); // contiguous renumbering, no orphan #2
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_marks_under_nonzero_crop_report_full_sprite_coords() {
+        // Source 4×4 cropped from (16,16) of a bigger sprite, at 8x (buffer 32×32). One
+        // opaque block at buffer (0,0) = source (16,16); one explicit region at (18,18)
+        // (inside the crop window) and one at (4,4) (outside → filtered).
+        let scale = 8u32;
+        let mut buf = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
+        for dy in 0..scale {
+            for dx in 0..scale {
+                buf.put_pixel(dx, dy, image::Rgba([200, 30, 20, 255]));
+            }
+        }
+        let info = crate::preview::PreviewInfo {
+            source_width: 4, source_height: 4, scale,
+            preview_width: 32, preview_height: 32, crop_x: 16, crop_y: 16,
+        };
+        // Components: the bbox must be in FULL-sprite coords (offset by the crop origin).
+        let dst = unique_preview_path("marks_crop_comp");
+        let out = finish_preview(buf.clone(), info, &dst.to_string_lossy(), Some(false), None, MarksInput::Components).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let marks = v["marks"].as_array().unwrap();
+        assert_eq!(marks.len(), 1, "got: {out}");
+        assert_eq!(marks[0]["bbox"]["x"], json!(16));
+        assert_eq!(marks[0]["bbox"]["y"], json!(16));
+        let _ = std::fs::remove_file(&dst);
+
+        // Regions: in-window vs outside, evaluated in source (full-sprite) coords.
+        let regions = vec![
+            crate::marks::Region { name: "inside".into(), bbox: crate::marks::MarkRect { x: 18, y: 18, width: 2, height: 2 } },
+            crate::marks::Region { name: "outside".into(), bbox: crate::marks::MarkRect { x: 4, y: 4, width: 2, height: 2 } },
+        ];
+        let dst = unique_preview_path("marks_crop_reg");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::Regions(regions)).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let marks = v["marks"].as_array().unwrap();
+        assert_eq!(marks.len(), 1, "only the in-window region survives: {out}");
+        assert_eq!(marks[0]["region"], json!("inside"));
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_marks_compose_over_an_applied_gutter_band() {
+        // Default gutter on (4×4 @16x is legible) + components: assert the gutter applied
+        // AND a badge drew into the ART quadrant (a BAND_BG box at band + centroid offset —
+        // BAND_BG there can only come from a badge, since the art fill is a different colour).
+        let (buf, info) = preview_buffer(4, 4, 16); // fully opaque -> one component
+        let dst = unique_preview_path("marks_gutter");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), None, None, MarksInput::Components).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["gutter_applied"], json!(true), "got: {out}");
+        let marks = v["marks"].as_array().unwrap();
+        assert_eq!(marks.len(), 1);
+        let (lw, th) = (
+            v["gutter"]["left_w"].as_u64().unwrap() as u32,
+            v["gutter"]["top_h"].as_u64().unwrap() as u32,
+        );
+        let img = image::open(&dst).unwrap().to_rgba8();
+        let band_bg = crate::gutter::BAND_BG;
+        // Scan the art quadrant (x>=left_w, y>=top_h) for a badge backing pixel.
+        let mut found = false;
+        for y in th..img.height() {
+            for x in lw..img.width() {
+                if *img.get_pixel(x, y) == band_bg {
+                    found = true;
+                }
+            }
+        }
+        assert!(found, "no badge box found in the art quadrant (band offset not applied?)");
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_empty_regions_emit_empty_marks_array() {
+        // marks requested but none placed -> `marks: []` present (distinguishes
+        // "requested, none" from "not requested").
+        let (buf, info) = preview_buffer(4, 4, 16);
+        let dst = unique_preview_path("marks_empty");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::Regions(vec![])).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["marks"], json!([]));
+        assert!(v.get("marks_truncated").is_none());
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn finish_preview_truncates_excess_marks_keeping_largest() {
+        // More than MAX_MARKS regions -> only the largest MAX_MARKS are badged, and
+        // marks_truncated reports the true total. A big region must survive.
+        let buf = image::RgbaImage::from_pixel(64, 64, image::Rgba([10, 20, 30, 255]));
+        let info = crate::preview::PreviewInfo {
+            source_width: 8, source_height: 8, scale: 8,
+            preview_width: 64, preview_height: 64, crop_x: 0, crop_y: 0,
+        };
+        let mut regions: Vec<crate::marks::Region> = (0..(MAX_MARKS + 5))
+            .map(|i| crate::marks::Region {
+                name: format!("r{i}"),
+                bbox: crate::marks::MarkRect { x: 1, y: 1, width: 1, height: 1 },
+            })
+            .collect();
+        regions.push(crate::marks::Region { name: "big".into(), bbox: crate::marks::MarkRect { x: 2, y: 2, width: 4, height: 4 } });
+        let total = regions.len();
+        let dst = unique_preview_path("marks_trunc");
+        let out = finish_preview(buf, info, &dst.to_string_lossy(), Some(false), None, MarksInput::Regions(regions)).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["marks"].as_array().unwrap().len(), MAX_MARKS);
+        assert_eq!(v["marks_truncated"], json!(total));
+        // The largest region (area 16) is kept, sorted to the front.
+        assert_eq!(v["marks"][0]["region"], json!("big"));
+        let _ = std::fs::remove_file(&dst);
     }
 
     #[test]
@@ -2622,6 +3936,7 @@ mod tests {
             LiveClearCelParams,
             LiveDrawPixelsParams,
             LivePixel,
+            LiveImportReferenceParams,
             LiveUseToolParams,
             LivePoint,
             LiveEmptyParams,
