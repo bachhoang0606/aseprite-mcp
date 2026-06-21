@@ -1,0 +1,17 @@
+{
+  "benchmark": "cross-path Path 2 (constrained colour)",
+  "date": "2026-06-21",
+  "build": "target/rmcp1 (main + rmcp 1.7), plugin 0.3.2",
+  "task": "12-pixel mixed-palette bench on a locked 3-colour palette (#ff0000/#00ff00/#0000ff); scoped example, not a full SwordsBench run",
+  "toggle": "live_palette_snap (CIELAB) ON vs OFF",
+  "metric": "off-palette pixel violations (objective; lint via pixelpng colour-set membership)",
+  "without_snap": { "colored_px": 12, "off_palette": 9, "on_palette_ratio": 0.25 },
+  "with_snap":    { "colored_px": 12, "off_palette": 0, "on_palette_ratio": 1.00 },
+  "delta": { "violations_eliminated": 9, "on_palette_ratio_pp": 75 },
+  "snap_mapping": [
+    {"from":"#808080","to":"#ff0000"},{"from":"#aa0000","to":"#ff0000"},{"from":"#00aa00","to":"#00ff00"},
+    {"from":"#0000aa","to":"#0000ff"},{"from":"#123456","to":"#0000ff"},{"from":"#ff8800","to":"#ff0000"},
+    {"from":"#88ff88","to":"#00ff00"},{"from":"#8888ff","to":"#0000ff"},{"from":"#abcdef","to":"#0000ff"}
+  ],
+  "evidence": ["path2_before.png", "path2_after.png"]
+}
