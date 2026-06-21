@@ -296,6 +296,22 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-009: ordered (Bayer) dither-fill a rectangle between two palette \
+            colours — the tedious deterministic shading an LLM does worst freehand, made \
+            palette-legal by construction (only `color_a`/`color_b` are emitted). Pass `rect` \
+            {x,y,width,height}, two `#rrggbb` colours (usually two adjacent ramp steps), an \
+            optional `level` 0..1 (fraction of color_b, default 0.5), and `matrix` \
+            (\"bayer4\" default / \"bayer2\" / \"checker\"). Drawn onto `layer` via the existing \
+            draw_pixels path (no new plugin command); region capped to avoid huge batches."
+    )]
+    async fn live_dither_fill(
+        &self,
+        params: Parameters<crate::live::LiveDitherFillParams>,
+    ) -> Result<String, String> {
+        self.live.dither_fill(params.0).await
+    }
+
+    #[tool(
         description = "Close a sprite in the running Aseprite UI session by filename or 1-based index."
     )]
     async fn live_close_sprite(

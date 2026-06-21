@@ -8,6 +8,7 @@ mod ascii_view;
 mod aseprite;
 mod autotile;
 mod color_ops;
+mod dither;
 mod filmstrip;
 mod gutter;
 mod live;
