@@ -1,11 +1,10 @@
-use rmcp::handler::server::tool::Parameters;
+use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::ToolCallContext},
     model::*,
     service::RequestContext,
     tool, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{error, info};
@@ -850,13 +849,11 @@ impl AsepriteServer {
 
 impl ServerHandler for AsepriteServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: Default::default(),
-            server_info: Implementation {
-                name: "aseprite-mcp".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-            },
-            instructions: Some(
+        // rmcp 1.x made ServerInfo/Implementation `#[non_exhaustive]`, so build via the
+        // constructor + builder methods rather than a struct literal, then set our custom
+        // server name (field mutation is allowed on non-exhaustive structs).
+        let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions(
                 "Live-first Aseprite MCP server. Before any drawing or sprite-editing workflow, \
                  call live_preflight (or live_status) and only use the live_* tools once connected \
                  is true; if it is not, stop and tell the user the live Aseprite session is not \
@@ -864,17 +861,15 @@ impl ServerHandler for AsepriteServer {
                  up in the open editor. The few offline tools (export_sprite, export_spritesheet, \
                  change_color_mode, and the gated run_lua_script / execute_cli escape hatch) are \
                  for deliberate file-level operations only. Paths may be absolute or relative to \
-                 the working directory; colours are hex '#rrggbb' or '#rrggbbaa'."
-                    .into(),
-            ),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+                 the working directory; colours are hex '#rrggbb' or '#rrggbbaa'.",
+            );
+        info.server_info.name = "aseprite-mcp".into();
+        info
     }
 
     fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl std::future::Future<Output = Result<CallToolResult, McpError>> + Send + '_ {
         let ctx = ToolCallContext::new(self, request, context);
@@ -883,12 +878,13 @@ impl ServerHandler for AsepriteServer {
 
     fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
         std::future::ready(Ok(ListToolsResult {
             tools: self.tool_router.list_all(),
             next_cursor: None,
+            meta: None,
         }))
     }
 }
