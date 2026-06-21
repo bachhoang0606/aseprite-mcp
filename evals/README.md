@@ -60,6 +60,26 @@ above) so they can't silently rot.
 A case **passes** when `case_score >= pass_threshold` AND no `must_pass`
 criterion scores below 0.5. List cases with `python evals/judge.py --list`.
 
+## Phase 2 — live, on-demand measurements (SPEC-007)
+Three measurements whose *tooling* is CI-verified but whose *runs* are live/on-demand;
+results go in [`BENCHMARK.md`](BENCHMARK.md) / [`RESULTS.md`](RESULTS.md), evidence under
+`evals/runs/<date>/`.
+
+- **Persona A/B** — `python evals/judge.py --emit-ab <case>` emits a paired prompt:
+  Variant A runs the task WITH the candidate persona line (`judge.PERSONA_CANDIDATE`),
+  Variant B without. Run both, judge **blind**, record A/B/Δ. **Adopt the persona only if
+  mean Δ ≥ +0.05 (consistent sign) over ≥3 runs** — it tests, not assumes, the source's
+  hypothesis.
+- **Long-session degradation (donut test)** — snapshot a quality vector
+  `{checkpoint, linter, min_iou, off_palette}` at context-fill checkpoints into a JSON list,
+  then `python evals/judge.py --slope snapshots.json` → `{slope, regressed, detail}` (exit 1
+  if regressed). Regression = any checkpoint below its 0%-baseline margin.
+- **Cross-path benchmark** — run a SwordsBench case with vs without a capability path's step
+  (perception see-step; constrained-colour snap); record the Δ in `BENCHMARK.md`.
+
+The slope math (`compute_slope`) is deterministically gated in CI via the
+`degradation_slope_math` Tier-A check; the live runs are operator-driven.
+
 ## Adding a check
 - **Tier A:** add a function to `run.py` returning `(ok, detail)`, register it in
   `CHECKS`, and add a `cases.json` entry mapping it to the component(s) it covers.

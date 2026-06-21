@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **SPEC-007 Phase 2 — degradation / persona-A/B / cross-path measurement tooling (roadmap #9).**
+  The live/on-demand half: machinery is CI-verified, the *runs* are operator-driven. `judge.py`
+  gains `--emit-ab <case>` (a paired **persona A/B** prompt — Variant A with the candidate
+  `PERSONA_CANDIDATE` line, Variant B without, judged blind; adopt only if mean Δ ≥ +0.05 over
+  ≥3 runs) and `compute_slope` / `--slope <json>` (the **long-session degradation / donut-test**
+  helper: snapshots → slope + regression flag, exit 1 if regressed). A new deterministic Tier-A
+  check `degradation_slope_math` gates the slope logic in CI (flags a decaying series, passes a
+  stable one). New `evals/BENCHMARK.md` scaffolds the cross-path (perception/colour on-vs-off) +
+  persona-A/B + degradation result tables (re-derivable from `evals/runs/<date>/`); README
+  documents the three protocols. 12/12 Tier-A checks pass; no new dependency. The recorded live
+  runs remain on-demand (Aseprite + tokens + judge) by design.
 - **SPEC-007 Phase 1 — silhouette-IoU animation-drift gate + SwordsBench cases (roadmap #9,
   checklist 9.3/9.4).** The objective validator the research calls *mandatory* (the donut-test
   antidote), now a **hard CI gate**. `tools/silhouette_iou.py` (pure stdlib, reuses

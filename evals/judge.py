@@ -19,6 +19,8 @@ Usage:
     python evals/judge.py                 # validate all cases (exit 0/1)
     python evals/judge.py --list          # list cases + components
     python evals/judge.py --emit <id>     # print the judge prompt for one case
+    python evals/judge.py --emit-ab <id>  # SPEC-007 Ph2: paired persona A/B prompt
+    python evals/judge.py --slope <f.json># SPEC-007 Ph2: degradation slope/regression
 """
 import json
 import os
@@ -34,6 +36,17 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 TIER_B = os.path.join(ROOT, "evals", "tier_b.json")
 
 WEIGHT_EPS = 1e-6
+
+# SPEC-007 Phase 2 — the candidate "artistic agent" persona line under A/B test.
+# Wired into a skill/agent prompt ONLY if >=3 blind A/B runs show mean delta >= +0.05
+# (consistent sign) — per the research caveat that this is the source's *untested*
+# hypothesis, not a result.
+PERSONA_CANDIDATE = (
+    "You are a meticulous pixel artist who prizes a readable silhouette and strict "
+    "palette discipline: plan key poses before drawing, and keep body volume constant "
+    "across frames."
+)
+SIL_FLOOR = 0.80  # the silhouette-IoU drift floor (matches SPEC-007 Phase 1)
 
 
 def load_cases():
@@ -161,7 +174,103 @@ def emit_prompt(case_id):
     return 0
 
 
+def emit_ab(case_id):
+    """SPEC-007 Phase 2 — emit a paired (with/without persona) A/B for one case.
+
+    The persona affects the *executor* (the skill/agent run), so run the same task
+    TWICE — Variant A with the persona line prepended, Variant B without — then judge
+    both results BLIND with the shared rubric and record the per-variant delta.
+    """
+    data = load_cases()
+    case = next((c for c in data["cases"] if c["id"] == case_id), None)
+    if case is None:
+        ids = ", ".join(c["id"] for c in data["cases"])
+        print(f"no case '{case_id}'. available: {ids}", file=sys.stderr)
+        return 1
+    lines = [
+        f"# Persona A/B — {case['id']} ({case['component']}, checklist {case['checklist']})",
+        "",
+        "Run the SAME task TWICE with the executor, capture both live results, then judge",
+        "them BLIND (do NOT tell the judge which variant carried the persona). Adopt the",
+        "persona line only if mean Δscore (A − B) >= +0.05 with consistent sign over >=3 runs.",
+        "",
+        "## Variant A — executor task WITH the candidate persona line",
+        f"> [persona] {PERSONA_CANDIDATE}",
+        f"> {case['prompt']}",
+        "",
+        "## Variant B — executor task WITHOUT the persona line (baseline)",
+        f"> {case['prompt']}",
+        "",
+        "## Judge each result independently (blind) with this rubric",
+    ]
+    for crit in case["rubric"]:
+        flag = "  [MUST-PASS: <0.5 fails]" if crit.get("must_pass") else ""
+        lines.append(
+            f"- **{crit['id']}** (weight {crit['weight']}, rule `{crit['rule']}`){flag}: {crit['desc']}"
+        )
+    lines += [
+        "",
+        "case_score = Σ(criterion_score × weight). Record A_score, B_score, delta = A − B",
+        "as one row per A/B run in evals/RESULTS.md, and archive evidence under",
+        "evals/runs/<YYYY-MM-DD>/. Decide adopt/reject only after >=3 runs.",
+    ]
+    print("\n".join(lines))
+    return 0
+
+
+def compute_slope(snapshots, iou_floor=SIL_FLOOR, linter_margin=0.10):
+    """SPEC-007 Phase 2 — long-session degradation (donut test).
+
+    `snapshots`: list of {checkpoint, linter (0..1 pass-rate), min_iou, off_palette}
+    at increasing context-fill checkpoints. The three metrics are checked SEPARATELY
+    against the 0%-baseline; `regressed` is True if any checkpoint breaches a margin.
+    A composite-quality least-squares `slope` is reported for trend (negative = decaying).
+    """
+    if len(snapshots) < 2:
+        return {"slope": 0.0, "regressed": False, "detail": "need >=2 snapshots"}
+    base = snapshots[0]
+    reasons = []
+    for s in snapshots[1:]:
+        cp = s.get("checkpoint", "?")
+        if s["linter"] < base["linter"] - linter_margin:
+            reasons.append(f"cp{cp}: linter {s['linter']:.2f} < base {base['linter']:.2f}-{linter_margin:.2f}")
+        if s["min_iou"] < iou_floor:
+            reasons.append(f"cp{cp}: min_iou {s['min_iou']:.2f} < floor {iou_floor:.2f}")
+        if s["off_palette"] > 0 and base["off_palette"] == 0:
+            reasons.append(f"cp{cp}: off_palette {s['off_palette']} (baseline 0)")
+    quality = [
+        s["linter"] * 0.4 + s["min_iou"] * 0.4 + (0.2 if s["off_palette"] == 0 else 0.0)
+        for s in snapshots
+    ]
+    n = len(quality)
+    xs = list(range(n))
+    mx, my = sum(xs) / n, sum(quality) / n
+    denom = sum((x - mx) ** 2 for x in xs)
+    slope = sum((xs[i] - mx) * (quality[i] - my) for i in range(n)) / denom if denom else 0.0
+    return {
+        "slope": round(slope, 4),
+        "regressed": bool(reasons),
+        "detail": "; ".join(reasons) if reasons else f"stable (composite slope {slope:+.4f})",
+    }
+
+
 def main(argv):
+    if "--emit-ab" in argv:
+        i = argv.index("--emit-ab")
+        if i + 1 >= len(argv):
+            print("--emit-ab needs a case id", file=sys.stderr)
+            return 2
+        return emit_ab(argv[i + 1])
+    if "--slope" in argv:
+        i = argv.index("--slope")
+        if i + 1 >= len(argv):
+            print("--slope needs a snapshots JSON path", file=sys.stderr)
+            return 2
+        with open(argv[i + 1], encoding="utf-8") as f:
+            snaps = json.load(f)
+        r = compute_slope(snaps if isinstance(snaps, list) else snaps["snapshots"])
+        print(json.dumps(r, indent=2))
+        return 1 if r["regressed"] else 0
     if "--list" in argv:
         data = load_cases()
         for c in data["cases"]:

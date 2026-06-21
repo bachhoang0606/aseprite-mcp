@@ -55,6 +55,11 @@
       "id": "tier_b_cases_wellformed",
       "covers": ["/pixel-new", "/pixel-shade", "/pixel-animate", "/pixel-export", "animation-director", "rig-builder"],
       "asserts": "every Tier-B LLM-judge case (evals/tier_b.json) is well-formed: maps to a real component + checklist id, cites existing rule files, and rubric weights sum to 1.0"
+    },
+    {
+      "id": "degradation_slope_math",
+      "covers": ["validation-harness (9.4)", "SPEC-007"],
+      "asserts": "the long-session degradation helper (judge.compute_slope) flags a decaying quality series and passes a stable one"
     }
   ]
 }
