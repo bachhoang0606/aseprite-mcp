@@ -46,7 +46,7 @@ jobs:
           cp -r scripts/aseprite-mcp-plugin dist/aseprite-mcp-${{ matrix.target }}/
           cp LICENSE README.md SECURITY.md dist/aseprite-mcp-${{ matrix.target }}/
           cd dist && tar -czf "aseprite-mcp-${{ matrix.target }}.tar.gz" "aseprite-mcp-${{ matrix.target }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aseprite-mcp-${{ matrix.target }}
           path: dist/aseprite-mcp-${{ matrix.target }}.tar.gz
