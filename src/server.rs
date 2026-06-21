@@ -278,6 +278,24 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-008: derive a machine-checkable StyleProfile from the active sprite — \
+            `{grid, palette, ramps:[{role, colors, length, lint}], light_dir, heads_tall, \
+            outline_policy}` — so 'match my hero sheet' becomes a deterministic, lintable task. \
+            `grid` auto-detects the native resolution (de-fakes a scaled reference); `ramps` are \
+            hue-sorted with a ramp-lint quality score (value-monotonic, hue-shifted, mid-peaked \
+            saturation); `light_dir`/`heads_tall`/`outline_policy` read off the silhouette. Feed it \
+            to rig-builder / animation-director as hard constraints and the linter as a checklist. \
+            Renders a modal-free 1× copy and analyses it in pure Rust; the open document is \
+            untouched. Optional `colors` (palette size, default 12)."
+    )]
+    async fn live_extract_style_profile(
+        &self,
+        params: Parameters<crate::live::LiveExtractStyleProfileParams>,
+    ) -> Result<String, String> {
+        self.live.extract_style_profile(params.0).await
+    }
+
+    #[tool(
         description = "Close a sprite in the running Aseprite UI session by filename or 1-based index."
     )]
     async fn live_close_sprite(

@@ -15,6 +15,7 @@ mod marks;
 mod preview;
 mod reference;
 mod server;
+mod style_profile;
 mod tileset_export;
 mod tools;
 mod utils;

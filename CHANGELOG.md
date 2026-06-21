@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **SPEC-008 — `live_extract_style_profile`: derive a StyleProfile live (roadmap #11 complete).**
+  The Rust live tool that completes the StyleProfile pipeline: derive a machine-checkable
+  `{grid, palette, ramps:[{role, colors, length, lint}], light_dir, heads_tall, outline_policy}`
+  from the **open sprite** so "match my hero sheet" is a deterministic, lintable task (§G).
+  Renders a modal-free 1× copy (no plugin change — reuses the raw `save_preview` render) and
+  analyses it in pure Rust (`src/style_profile.rs`) — a **faithful port** of the offline
+  `tools/{regrid,ramp_lint,extract_palette,style_profile}.py`, with Rust unit tests mirroring
+  their selftests (grid de-fake native→1/4×→4, the goblin-ramp lint calibration, the
+  geometry read) so the two implementations can't diverge. `grid` auto-detects the native
+  resolution; `ramps` carry their ramp-lint score; reuses `color_ops::Rgba`. 126 unit tests pass
+  (3 new); the schema-contract test validates the tool. No new dependency.
 - **SPEC-008 Phase 2 — native-grid auto-detect (de-fake scaled references) (roadmap #11, §C2/§G).**
   `tools/regrid.py` recovers the true native resolution of "fake" pixel art (e.g. a 1024px image
   that is really 64×64) so palette/ramp/proportion analysis runs at the right scale. Method
