@@ -65,6 +65,11 @@
       "id": "ramp_lint_quality",
       "covers": ["rules/01", "/pixel-palette", "SPEC-008"],
       "asserts": "the project's own ramps lint as good (value-monotonic, hue-shifted, mid-peaked saturation) and a value-only grey ramp is flagged"
+    },
+    {
+      "id": "regrid_detects_scale",
+      "covers": ["SPEC-008", "Path 4 style grounding"],
+      "asserts": "the native-grid auto-detect recovers a 4x-upscale's cell size (de-fake) and leaves native art at cell 1"
     }
   ]
 }

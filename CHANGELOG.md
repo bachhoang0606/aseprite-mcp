@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- **SPEC-008 Phase 2 — native-grid auto-detect (de-fake scaled references) (roadmap #11, §C2/§G).**
+  `tools/regrid.py` recovers the true native resolution of "fake" pixel art (e.g. a 1024px image
+  that is really 64×64) so palette/ramp/proportion analysis runs at the right scale. Method
+  (corrected from "autocorrelation"): the **largest n whose grid-aligned n×n blocks are
+  mode-uniform** — a clean n×-upscale makes every block one source pixel, while native art fails
+  at n=2 (adjacent pixels differ). Pure stdlib (**no `imageproc`/new dependency** — that cost was
+  only the Rust path), `tol=0.9` tolerates light dithering. `style_profile.py` now fills `grid`
+  (`{cell_w, cell_h, native, scale}`) from it; `--selftest` covers native→1 / 4×→4 / 3×→3, and a
+  new eval gate `regrid_detects_scale` makes it deterministic in CI. 14/14 Tier-A checks pass. The
+  only remaining SPEC-008 piece is the Rust live tool `live_extract_style_profile`.
 - **SPEC-008 Phase 1 — StyleProfile pipeline core: ramp-lint + profile derivation (roadmap #11,
   Path 4).** Turns "match my hero sheet" into a deterministic, lintable contract (§G).
   `tools/ramp_lint.py` (pure stdlib) is the keystone — an **objective ramp-quality axis**:

@@ -1,7 +1,9 @@
 # SPEC-008 — StyleProfile pipeline (reference → machine-checkable style contract, roadmap #11)
 
-- Status: **Draft (2026-06-21)** — design + Phase 1 deterministic core; Phase 2 (grid
-  auto-detect + live tools) deferred.
+- Status: **Phase 1 + 2 grid auto-detect landed (2026-06-21).** The pure-Python core ships
+  (ramp-lint, profile derivation, and the `regrid` native-grid de-fake, all eval-gated). The
+  remaining Phase 2 piece — the Rust **live tool** `live_extract_style_profile` feeding
+  rig-builder/animation-director — is the only deferred item.
 - Owner: project
 - Checklist items advanced: **9.4** (new objective eval axis — ramp-lint), 4.1 (palette/ramp
   discipline made machine-checkable), supports 2.x (future live tool).
@@ -64,13 +66,17 @@ harness. It's the 2D analog of Figma's "named tokens, not hex".
    `goblin-default` ramps score above the floor, and a synthetic value-only (no hue-shift)
    ramp is flagged below it — making ramp quality a deterministic, CI-gated axis (SPEC-007 9.4).
 
-### Phase 2 — deferred (grid auto-detect + live)
-- **Normalize / grid auto-detect** — Sobel edge-profile row/col histogram → median cell
-  spacing → per-cell mode colour (proper-pixel-art / unfake.js, §C2/§G); fills `grid`/`origin`/
-  `frame_counts` and lets the reference be any scaled/dithered image. Shared with SPEC-006
-  Phase 2 (same regrid); carries the `imageproc`/decoder dependency cost, so deferred.
-- **Live tools** — `live_extract_style_profile` (derive from the open sprite or a `Reference`
-  layer) and feeding the profile to rig-builder / animation-director as hard constraints.
+### Phase 2 — grid auto-detect (LANDED) + live tool (deferred)
+- **Normalize / grid auto-detect (LANDED).** `tools/regrid.py` recovers the native cell size
+  of a scaled "fake" reference — **the largest n whose grid-aligned n×n blocks are mode-uniform**
+  (a clean n×-upscale makes each block one source pixel; native art fails at n=2). Pure stdlib
+  (no `imageproc` — that cost was only the Rust path), `tol=0.9` tolerates light dithering. Fills
+  `grid` in the StyleProfile (`{cell_w, cell_h, native:[w,h], scale}`); `--selftest` covers
+  native→1 / 4×→4 / 3×→3, and the eval gate `regrid_detects_scale` makes it deterministic in CI.
+  (`frame_counts` sheet-layout detection is a smaller later refinement.)
+- **Live tool (deferred)** — `live_extract_style_profile` (derive from the open sprite or a
+  `Reference` layer) feeding the profile to rig-builder / animation-director as hard constraints
+  is a Rust live-tool addition, left as the remaining Phase 2 item.
 
 ### Decisions
 1. **Reuse what exists.** Palette extraction is `extract_palette.py`; the ramp format is the
