@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pixelpng import read_png  # noqa: E402
 import extract_palette  # noqa: E402
 import ramp_lint  # noqa: E402
+import regrid  # noqa: E402
 
 
 def _hsv(rgb):
@@ -128,8 +129,8 @@ def derive(path, colors=12):
     return {
         "source": os.path.basename(path),
         "size": [w, h],
-        "grid": None,            # Phase 2 (Sobel auto-detect)
-        "frame_counts": None,    # Phase 2
+        "grid": regrid.detect_grid(px, w, h),  # SPEC-008 Phase 2: native-resolution auto-detect
+        "frame_counts": None,    # sheet-layout detection — a later refinement
         "palette": palette,
         "ramps": ramp_sort(palette),
         "light_dir": light_dir(px, w, h),

@@ -171,6 +171,17 @@ def check_ramp_lint_quality():
     return good_ok and bad_flagged, f"goblin ramps pass={good_ok}, value-only flagged={bad_flagged}"
 
 
+def check_regrid_detects_scale():
+    """SPEC-008 Phase 2: the grid auto-detect recovers a 4×-upscale's native cell size
+    (de-fake) and leaves genuinely native art at cell 1."""
+    rg = _load_module(os.path.join(ROOT, "tools", "regrid.py"), "regrid")
+    pal = [(200, 40, 40, 255), (40, 200, 60, 255), (50, 60, 220, 255), (230, 210, 40, 255), (0, 0, 0, 0)]
+    base = [pal[((i * 1103515245 + 12345) >> 4) % 5] for i in range(64)]
+    native = rg.detect_grid(base, 8, 8)["cell_w"]
+    scaled = rg.detect_grid(rg._upscale(base, 8, 8, 4), 32, 32)["cell_w"]
+    return native == 1 and scaled == 4, f"native_cell={native}, 4x_cell={scaled}"
+
+
 def check_health_check_json():
     out = subprocess.run(
         [sys.executable, os.path.join(ROOT, "hooks", "health_check.py")],
@@ -198,6 +209,7 @@ CHECKS = {
     "tier_b_cases_wellformed": check_tier_b_cases_wellformed,
     "degradation_slope_math": check_degradation_slope_math,
     "ramp_lint_quality": check_ramp_lint_quality,
+    "regrid_detects_scale": check_regrid_detects_scale,
 }
 
 
