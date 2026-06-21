@@ -146,6 +146,20 @@ def check_tier_b_cases_wellformed():
     return judge.validate()
 
 
+def check_degradation_slope_math():
+    """SPEC-007 Phase 2: the donut-test degradation helper flags a decaying session
+    and passes a stable one (deterministic — exercises judge.compute_slope)."""
+    judge = _load_module(os.path.join(ROOT, "evals", "judge.py"), "judge")
+    stable = [{"checkpoint": p, "linter": 1.0, "min_iou": 0.9, "off_palette": 0} for p in (0, 20, 40, 60)]
+    decaying = [
+        {"checkpoint": 0, "linter": 1.0, "min_iou": 0.90, "off_palette": 0},
+        {"checkpoint": 40, "linter": 0.70, "min_iou": 0.60, "off_palette": 3},
+    ]
+    s_ok = judge.compute_slope(stable)["regressed"] is False
+    d_ok = judge.compute_slope(decaying)["regressed"] is True
+    return s_ok and d_ok, f"stable_no_regress={s_ok}, decaying_regress={d_ok}"
+
+
 def check_health_check_json():
     out = subprocess.run(
         [sys.executable, os.path.join(ROOT, "hooks", "health_check.py")],
@@ -171,6 +185,7 @@ CHECKS = {
     "silhouette_iou_detects_drift": check_silhouette_iou_detects_drift,
     "health_check_json": check_health_check_json,
     "tier_b_cases_wellformed": check_tier_b_cases_wellformed,
+    "degradation_slope_math": check_degradation_slope_math,
 }
 
 
