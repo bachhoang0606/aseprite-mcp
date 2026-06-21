@@ -641,6 +641,18 @@ pub struct LivePaletteSnapParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveGradientMapParams {
+    /// Ramp to map onto, an ordered dark→light list of `#rrggbb` (e.g. a StyleProfile ramp).
+    pub ramp: Vec<String>,
+    /// Target layer. Omit for the active layer.
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit for the active frame.
+    pub frame: Option<u32>,
+    /// Limit to the active selection (else the whole layer). Defaults to false.
+    pub selection_only: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveAdjustPixelsParams {
     /// Intent op: "darken", "lighten", "hue_shift", "colorize", or "snap".
     pub op: String,
@@ -2249,6 +2261,55 @@ impl LiveBridge {
                 .iter()
                 .map(|(f, t)| json!({ "from": f.to_hex(), "to": t.to_hex() }))
                 .collect::<Vec<_>>(),
+        })
+        .to_string())
+    }
+
+    /// SPEC-009: re-shade a region onto a target ramp — each unique colour maps to the ramp
+    /// step matching its luma (dark→light). Palette-legal by construction (only ramp colours
+    /// are emitted); reuses the SPEC-004 `get_region_colors` → `apply_color_map` path.
+    pub async fn gradient_map(&self, params: LiveGradientMapParams) -> Result<String, String> {
+        let ramp: Vec<Rgba> = params
+            .ramp
+            .iter()
+            .map(|h| Rgba::from_hex(h))
+            .collect::<Result<_, _>>()
+            .map_err(|e| live_error("invalid_color", &e, None))?;
+        if ramp.len() < 2 {
+            return Err(live_error("invalid_ramp", "ramp needs >= 2 colours (dark->light)", None));
+        }
+        let (colors, _palette, image_layer) = self
+            .fetch_region_colors(params.layer.clone(), params.frame, params.selection_only)
+            .await?;
+        if !image_layer {
+            return Err(live_error(
+                "not_an_image_layer",
+                "colour ops need a regular image layer (not a group or tilemap)",
+                None,
+            ));
+        }
+        let map: Vec<(Rgba, Rgba)> = colors
+            .iter()
+            .map(|&c| (c, color_ops::gradient_map(c, &ramp)))
+            .filter(|(f, t)| f != t)
+            .collect();
+        if map.is_empty() {
+            return Ok(json!({
+                "changed": false,
+                "mappedColors": 0,
+                "uniqueColors": colors.len(),
+            })
+            .to_string());
+        }
+        let res = self
+            .apply_color_map(params.layer, params.frame, params.selection_only, &map)
+            .await?;
+        Ok(json!({
+            "changed": true,
+            "mappedColors": map.len(),
+            "uniqueColors": colors.len(),
+            "rampSteps": ramp.len(),
+            "pixels": res.get("pixels").cloned().unwrap_or(Value::Null),
         })
         .to_string())
     }

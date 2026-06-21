@@ -236,6 +236,21 @@ pub fn clamp_to_palette(c: Rgba, palette: &[Rgba]) -> Rgba {
     }
 }
 
+/// Map a colour to a ramp step by its luma (0..1 → ramp index 0..len-1, dark→light).
+/// Transparent stays transparent and the original alpha is preserved. The ramp must be
+/// ordered dark→light. Used by `live_gradient_map` (SPEC-009) to re-shade a region onto a
+/// target ramp — a StyleProfile ramp feeds straight in, and the result is palette-legal by
+/// construction (only ramp colours are emitted).
+pub fn gradient_map(c: Rgba, ramp: &[Rgba]) -> Rgba {
+    if ramp.is_empty() || c.is_transparent() {
+        return c;
+    }
+    let luma = (0.299 * c.r as f64 + 0.587 * c.g as f64 + 0.114 * c.b as f64) / 255.0;
+    let idx = ((luma * ramp.len() as f64) as usize).min(ramp.len() - 1);
+    let p = ramp[idx];
+    Rgba::rgba(p.r, p.g, p.b, c.a)
+}
+
 // ---------------------------------------------------------------------------
 // HSV (for the semantic ops)
 // ---------------------------------------------------------------------------
@@ -630,5 +645,19 @@ mod tests {
         let clamped = ColorOp::Darken(0.5).apply(hex("#e23838"), &pal, true);
         assert!(pal.contains(&clamped), "clamped result is palette-legal");
         assert!(!pal.contains(&raw), "raw result is the free shade");
+    }
+
+    #[test]
+    fn gradient_map_picks_ramp_step_by_luma() {
+        let ramp = [hex("#1b4d3e"), hex("#2e7d32"), hex("#a6d94a")]; // dark, mid, light
+        assert_eq!(gradient_map(hex("#000000"), &ramp), ramp[0], "black -> darkest");
+        assert_eq!(gradient_map(hex("#ffffff"), &ramp), ramp[2], "white -> lightest");
+        let mid = gradient_map(hex("#808080"), &ramp);
+        assert!(ramp.contains(&mid) && mid != ramp[0], "mid grey maps off the darkest");
+        // transparent + empty ramp are no-ops; alpha is preserved.
+        let t = Rgba::rgba(50, 60, 70, 0);
+        assert_eq!(gradient_map(t, &ramp), t, "transparent unchanged");
+        assert_eq!(gradient_map(hex("#000000"), &[]), hex("#000000"), "empty ramp unchanged");
+        assert_eq!(gradient_map(Rgba::rgba(255, 255, 255, 128), &ramp).a, 128, "alpha preserved");
     }
 }
