@@ -312,6 +312,24 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-009: artifact-free RotSprite rotation — rotate a region of the \
+            sprite by ANY angle (`angle` degrees, positive = clockwise) and stamp the clean \
+            result onto a NEW layer (the source is left as-is). Hand-rolled RotSprite (scale \
+            ×8 Scale2× → nearest-neighbour rotate → mode downscale) so the result introduces \
+            NO new colours — palette-legal by construction, none of the AA fringe a naive \
+            rotate leaves; right angles are exact. Pass `rect` {x,y,width,height} (or omit for \
+            the whole canvas / `selection_only` for the active selection); `at_x`/`at_y` to \
+            place the result (default: centred on the source, rotate in place); `layer` \
+            (default \"Rotated\"). Reads the flattened render; region capped (×8 buffer)."
+    )]
+    async fn live_rotate(
+        &self,
+        params: Parameters<crate::live::LiveRotateParams>,
+    ) -> Result<String, String> {
+        self.live.rotate(params.0).await
+    }
+
+    #[tool(
         description = "Close a sprite in the running Aseprite UI session by filename or 1-based index."
     )]
     async fn live_close_sprite(
