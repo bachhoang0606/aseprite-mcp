@@ -1,9 +1,10 @@
 # SPEC-008 — StyleProfile pipeline (reference → machine-checkable style contract, roadmap #11)
 
-- Status: **Phase 1 + 2 grid auto-detect landed (2026-06-21).** The pure-Python core ships
-  (ramp-lint, profile derivation, and the `regrid` native-grid de-fake, all eval-gated). The
-  remaining Phase 2 piece — the Rust **live tool** `live_extract_style_profile` feeding
-  rig-builder/animation-director — is the only deferred item.
+- Status: **Fully landed (2026-06-21).** The offline pure-Python core ships (ramp-lint, profile
+  derivation, `regrid` de-fake — all eval-gated) **and** the Rust live tool
+  `live_extract_style_profile` (a faithful port of the derivation, returning the profile from
+  the open sprite — Rust tests mirror the Python selftests so they can't diverge). Feeding the
+  profile to rig-builder/animation-director as *automatic* hard constraints is a future polish.
 - Owner: project
 - Checklist items advanced: **9.4** (new objective eval axis — ramp-lint), 4.1 (palette/ramp
   discipline made machine-checkable), supports 2.x (future live tool).
@@ -74,9 +75,10 @@ harness. It's the 2D analog of Figma's "named tokens, not hex".
   `grid` in the StyleProfile (`{cell_w, cell_h, native:[w,h], scale}`); `--selftest` covers
   native→1 / 4×→4 / 3×→3, and the eval gate `regrid_detects_scale` makes it deterministic in CI.
   (`frame_counts` sheet-layout detection is a smaller later refinement.)
-- **Live tool (deferred)** — `live_extract_style_profile` (derive from the open sprite or a
-  `Reference` layer) feeding the profile to rig-builder / animation-director as hard constraints
-  is a Rust live-tool addition, left as the remaining Phase 2 item.
+- **Live tool (LANDED)** — `live_extract_style_profile` renders a modal-free 1× copy of the
+  active sprite and derives the profile in pure Rust (`src/style_profile.rs`, a faithful port of
+  the Python with tests mirroring its selftests). No plugin change (reuses the raw `save_preview`
+  render). *Auto-feeding* the profile into rig-builder/animation-director prompts is a later polish.
 
 ### Decisions
 1. **Reuse what exists.** Palette extraction is `extract_palette.py`; the ramp format is the

@@ -279,6 +279,12 @@ pub struct LiveFrameDiffParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveExtractStyleProfileParams {
+    /// Palette size to extract (clamped 2..64). Defaults to 12.
+    pub colors: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveCloseSpriteParams {
     pub filename: Option<String>,
     pub index: Option<u32>,
@@ -1047,6 +1053,32 @@ impl LiveBridge {
             });
         let _ = std::fs::remove_file(&temp);
         res
+    }
+
+    /// SPEC-008: derive a machine-checkable `StyleProfile` from the active sprite — the
+    /// native grid (de-fakes a scaled reference), palette, ramps + ramp-lint scores,
+    /// light direction, head proportion, and outline policy (research §G). Renders a
+    /// modal-free 1× copy and analyses it in pure Rust (`crate::style_profile`, the same
+    /// algorithms the eval gates test); the open document is untouched.
+    pub async fn extract_style_profile(
+        &self,
+        params: LiveExtractStyleProfileParams,
+    ) -> Result<String, String> {
+        let temp = std::env::temp_dir().join(format!(
+            "aseprite_mcp_style_{}.png",
+            self.next_id.fetch_add(1, Ordering::Relaxed)
+        ));
+        self.command("save_preview", None, Some(json!({ "filename": temp.to_string_lossy() })))
+            .await?;
+        let decoded = image::open(&temp)
+            .map(|im| im.to_rgba8())
+            .map_err(|e| live_error("style_profile_decode_failed", &format!("{e}"), None));
+        let _ = std::fs::remove_file(&temp);
+        let img = decoded?;
+        let colors = params.colors.unwrap_or(12).clamp(2, 64);
+        let profile = crate::style_profile::derive(&img, colors);
+        serde_json::to_string(&profile)
+            .map_err(|e| live_error("style_profile_serialize_failed", &format!("{e}"), None))
     }
 
     /// Diff two animation frames as a TEXT grid (`.`=unchanged, `-`=erased, else the
