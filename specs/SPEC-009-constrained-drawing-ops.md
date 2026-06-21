@@ -1,7 +1,8 @@
 # SPEC-009 — Constrained drawing operations (roadmap #8, Path 2/5)
 
-- Status: **Draft (2026-06-21)** — design + Phase 1 (`dither_fill_region`). Phase 2
-  (`gradient_map`, `rotsprite` rotation) deferred.
+- Status: **Phase 1 (`dither_fill`) + Phase 2 `gradient_map` landed (2026-06-21).** Both are
+  pure-Rust, eval-gated by `cargo test`, and draw via existing paths (no plugin change). The only
+  remaining op is **`rotsprite` rotation**, deferred behind a lean-deps decision (it wants a crate).
 - Owner: project
 - Checklist items advanced: 2.1 (live tool surface), 4.1 (palette-legal by construction).
 - Related ADRs: ADR-0005 (loud per-command degradation). No new ADR — reuses the
@@ -39,9 +40,12 @@ the most iconic + self-contained one, **`dither_fill_region`**.
    can't explode the batch (reuse the import cap). Loudly refuse an empty rect / bad colour.
 3. **`live_dither_fill` tool** (`server.rs`).
 
-### Phase 2 — deferred
-- **`gradient_map`** — map each pixel's luma to a position along a ramp (the StyleProfile ramps
-  feed straight in); pure Rust, no new dep. A natural follow-up.
+### Phase 2 — `gradient_map` (LANDED) + `rotsprite` (deferred)
+- **`gradient_map` (LANDED)** — `color_ops::gradient_map(c, ramp)` maps a colour to the ramp
+  step matching its luma (dark→light), preserving alpha; the live `live_gradient_map` builds a
+  per-unique-colour map and applies it via the **SPEC-004 `get_region_colors` → `apply_color_map`**
+  path (no render, no new plugin command). A StyleProfile ramp feeds straight in. Palette-legal by
+  construction. Unit-tested in `color_ops`; the schema-contract test covers the tool.
 - **`rotsprite` rotation** — artifact-free rotation that introduces no new colours
   ([`rotsprite` crate](https://docs.rs/rotsprite), §E). Carries a **new crate dependency**
   (Windows-SAC relink cost), so deferred behind a deliberate dep decision.

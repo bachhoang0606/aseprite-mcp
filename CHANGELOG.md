@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- **SPEC-009 Phase 2 — `live_gradient_map`: re-shade a region onto a ramp (roadmap #8).**
+  Map every colour in a layer/selection to the ramp step matching its luma (dark→light) — turn a
+  rough/grey region or a recolour onto a target ramp in one call. **Palette-legal by construction**
+  (only ramp colours are emitted), and a **StyleProfile ramp** (`live_extract_style_profile`) feeds
+  straight in. Pure `color_ops::gradient_map(c, ramp)` (luma → ramp index, alpha preserved);
+  the live tool builds a per-unique-colour map and applies it via the **SPEC-004
+  `get_region_colors` → `apply_color_map`** path — no render, **no new plugin command**.
+  Unit-tested (black→darkest, white→lightest, mid-grey→mid, transparent/empty no-ops, alpha
+  preserved); 131 unit tests pass; the schema-contract test validates the tool. No new dependency.
+  Only `rotsprite` rotation (a crate dep) remains in SPEC-009.
 - **SPEC-009 Phase 1 — `live_dither_fill`: ordered dithering between two palette colours
   (roadmap #8, Path 2/5).** The tedious deterministic shading an LLM does worst freehand,
   made **palette-legal by construction** — an ordered (Bayer) dither emits only its two input

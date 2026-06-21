@@ -739,6 +739,21 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-009: gradient-map a layer/selection onto a ramp — re-shade every \
+            colour to the ramp step matching its luma (dark→light), so a rough/grey region or a \
+            recolour snaps onto a target ramp. Pass `ramp` as an ordered dark→light list of \
+            `#rrggbb` (a StyleProfile ramp from live_extract_style_profile feeds straight in). \
+            Palette-legal by construction (only ramp colours are emitted); reuses the SPEC-004 \
+            color-map path (RGB sprites; `selection_only` to limit to the active selection)."
+    )]
+    async fn live_gradient_map(
+        &self,
+        params: Parameters<crate::live::LiveGradientMapParams>,
+    ) -> Result<String, String> {
+        self.live.gradient_map(params.0).await
+    }
+
+    #[tool(
         description = "SPEC-004: Shade pixels by INTENT in a layer/selection. op = darken | lighten (value shift + rule-correct hue-shift: shadows cool toward blue, highlights warm toward orange) | hue_shift (amount = degrees) | colorize (hue = target degrees) | snap. clamp_to_palette (default true) keeps the result palette-legal. RGB sprites only."
     )]
     async fn live_adjust_pixels(
