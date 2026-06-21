@@ -160,6 +160,17 @@ def check_degradation_slope_math():
     return s_ok and d_ok, f"stable_no_regress={s_ok}, decaying_regress={d_ok}"
 
 
+def check_ramp_lint_quality():
+    """SPEC-008: the project's own ramps lint well (rules/01 calibration) and a
+    value-only grey ramp is flagged — making ramp quality a deterministic axis."""
+    rl = _load_module(os.path.join(ROOT, "tools", "ramp_lint.py"), "ramp_lint")
+    with open(PALETTE, encoding="utf-8") as f:
+        ramps = json.load(f)["ramps"]
+    good_ok = all(r["pass"] for r in rl.lint_palette_ramps(ramps).values())
+    bad_flagged = not rl.lint_ramp(["#222222", "#555555", "#888888", "#bbbbbb", "#eeeeee"])["pass"]
+    return good_ok and bad_flagged, f"goblin ramps pass={good_ok}, value-only flagged={bad_flagged}"
+
+
 def check_health_check_json():
     out = subprocess.run(
         [sys.executable, os.path.join(ROOT, "hooks", "health_check.py")],
@@ -186,6 +197,7 @@ CHECKS = {
     "health_check_json": check_health_check_json,
     "tier_b_cases_wellformed": check_tier_b_cases_wellformed,
     "degradation_slope_math": check_degradation_slope_math,
+    "ramp_lint_quality": check_ramp_lint_quality,
 }
 
 
