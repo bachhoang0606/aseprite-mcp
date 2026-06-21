@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **SPEC-009 Phase 1 — `live_dither_fill`: ordered dithering between two palette colours
+  (roadmap #8, Path 2/5).** The tedious deterministic shading an LLM does worst freehand,
+  made **palette-legal by construction** — an ordered (Bayer) dither emits only its two input
+  colours, so the result never needs a snap pass. Pure-Rust core `src/dither.rs` (Bayer-4/2 or
+  checker threshold matrix tiled over the region; a cell takes `color_b` when its threshold <
+  `level`, else `color_a`); the live tool resolves a `rect`, validates the two colours + `level`
+  + `matrix`, and draws via the existing `draw_pixels` path (**no new plugin command**, region
+  capped at 256² px). 4 unit tests (pure endpoints at level 0/1, even Bayer-4 split at 0.5,
+  checker alternation, offset+coverage); 130 unit tests pass; the schema-contract test validates
+  the tool. No new dependency. Phase 2 (`gradient_map`, `rotsprite` rotation — the latter carries
+  a crate dep) is deferred — see SPEC-009.
 - **SPEC-008 — `live_extract_style_profile`: derive a StyleProfile live (roadmap #11 complete).**
   The Rust live tool that completes the StyleProfile pipeline: derive a machine-checkable
   `{grid, palette, ramps:[{role, colors, length, lint}], light_dir, heads_tall, outline_policy}`

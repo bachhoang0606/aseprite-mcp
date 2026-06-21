@@ -285,6 +285,23 @@ pub struct LiveExtractStyleProfileParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveDitherFillParams {
+    /// Rectangle to fill, in sprite pixels.
+    pub rect: LiveRect,
+    /// Two `#rrggbb` colours to dither between (usually two adjacent ramp steps).
+    pub color_a: String,
+    pub color_b: String,
+    /// Fraction of `color_b`, 0..1. Default 0.5.
+    pub level: Option<f64>,
+    /// Dither matrix: "bayer4" (default), "bayer2", or "checker".
+    pub matrix: Option<String>,
+    /// Target layer. Defaults to "AI Draft".
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit to use the active frame.
+    pub frame: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveCloseSpriteParams {
     pub filename: Option<String>,
     pub index: Option<u32>,
@@ -1079,6 +1096,51 @@ impl LiveBridge {
         let profile = crate::style_profile::derive(&img, colors);
         serde_json::to_string(&profile)
             .map_err(|e| live_error("style_profile_serialize_failed", &format!("{e}"), None))
+    }
+
+    /// SPEC-009: ordered (Bayer) dither-fill a rectangle between two palette colours — a
+    /// palette-legal-by-construction shading op (only the two inputs appear). Computes the
+    /// pattern in pure Rust (`crate::dither`) and draws it via the existing `draw_pixels`
+    /// path; no new plugin command.
+    pub async fn dither_fill(&self, params: LiveDitherFillParams) -> Result<String, String> {
+        let r = &params.rect;
+        if r.width == 0 || r.height == 0 {
+            return Err(live_error("empty_rect", "rect width and height must be > 0", None));
+        }
+        if (r.width as u64) * (r.height as u64) > MAX_DITHER_AREA {
+            return Err(live_error(
+                "rect_too_large",
+                &format!("{}x{} exceeds the {MAX_DITHER_AREA}px dither cap (split it)", r.width, r.height),
+                None,
+            ));
+        }
+        let a = crate::color_ops::Rgba::from_hex(&params.color_a)
+            .map_err(|e| live_error("invalid_color", &e, None))?;
+        let b = crate::color_ops::Rgba::from_hex(&params.color_b)
+            .map_err(|e| live_error("invalid_color", &e, None))?;
+        let level = params.level.unwrap_or(0.5);
+        if !(0.0..=1.0).contains(&level) {
+            return Err(live_error("invalid_level", "level must be in [0, 1]", None));
+        }
+        let matrix = match &params.matrix {
+            Some(s) => crate::dither::Matrix::parse(s).map_err(|e| live_error("invalid_matrix", &e, None))?,
+            None => crate::dither::Matrix::Bayer4,
+        };
+        let pixels: Vec<LivePixel> = crate::dither::dither_region(r.x, r.y, r.width, r.height, a, b, level, matrix)
+            .into_iter()
+            .map(|(x, y, c)| LivePixel { x, y, color: c.to_hex() })
+            .collect();
+        let count = pixels.len();
+        self.draw_pixels(LiveDrawPixelsParams { pixels, layer: params.layer.clone(), frame: params.frame })
+            .await?;
+        Ok(json!({
+            "pixels": count,
+            "color_a": params.color_a,
+            "color_b": params.color_b,
+            "level": level,
+            "matrix": params.matrix.unwrap_or_else(|| "bayer4".into()),
+        })
+        .to_string())
     }
 
     /// Diff two animation frames as a TEXT grid (`.`=unchanged, `-`=erased, else the
@@ -2859,6 +2921,10 @@ fn cel_crop_from_response(resp: &str) -> Result<crate::preview::Crop, String> {
 /// connected components) can't bury the art in overlapping badge boxes. Past this the
 /// largest regions are kept and `marks_truncated` reports the true total.
 const MAX_MARKS: usize = 64;
+
+/// Upper bound on a single `dither_fill` region (px), so one call can't explode the
+/// `draw_pixels` batch; split a larger fill.
+const MAX_DITHER_AREA: u64 = 256 * 256;
 
 /// Set-of-Mark region source, resolved by `save_preview` (SPEC-005 Phase 4): explicit
 /// source-space `Regions` (slices / layer cels read from the bridge) or `Components`
