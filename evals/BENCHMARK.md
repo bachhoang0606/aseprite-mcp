@@ -13,9 +13,17 @@ once **without** — and score both blind. Toggled as manual run-variants (no co
 | Path | Step toggled | Case | with | without | Δ (with − without) | Date / evidence |
 |------|--------------|------|-----:|--------:|-------------------:|-----------------|
 | 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | `tb_swords_walk` | — | — | — | _pending first run_ |
-| 2 Constrained colour | `live_palette_snap` / `clamp_to_palette` | `tb_swords_static` | — | — | — | _pending first run_ |
+| 2 Constrained colour | `live_palette_snap` (CIELAB) | 12px mixed-palette bench (scoped) | **100% on-pal** | 25% on-pal | **+75pp** (9 violations → 0) | 2026-06-21 · [runs/2026-06-21/](runs/2026-06-21/) |
 
 A positive Δ = the path measurably improves the result on this server.
+
+> **Run 1 (2026-06-21, Path 2).** On a locked 3-colour palette, 12 pixels were drawn (3
+> on-palette + 9 off-palette). Metric = off-palette violations (objective, no LLM judge).
+> **Without** `live_palette_snap`: 9/12 off-palette (25% on-palette). **With**: 0/12
+> (100%). Δ = **9 violations eliminated**. The snap used real CIELAB ΔE (e.g. `#808080`→red,
+> `#ff8800`→red), not RGB. Evidence: [`runs/2026-06-21/`](runs/2026-06-21/)
+> (`path2_{before,after}.png` + `path2_constrained_colour.json`). Scoped single example —
+> the full SwordsBench-with-judge cross-path runs remain on-demand.
 
 ## B. Persona A/B
 Tests the candidate "artistic agent" persona line (`judge.PERSONA_CANDIDATE`). Emit with
