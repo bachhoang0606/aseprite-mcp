@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **SPEC-008 Phase 1 — StyleProfile pipeline core: ramp-lint + profile derivation (roadmap #11,
+  Path 4).** Turns "match my hero sheet" into a deterministic, lintable contract (§G).
+  `tools/ramp_lint.py` (pure stdlib) is the keystone — an **objective ramp-quality axis**:
+  value-monotonic (must-pass), per-step **hue-shift** (cooler dark / warmer light, coupled to
+  real hue rotation), **mid-peaked saturation**, **no max-sat+max-value corner**, 3–5 steps
+  (`rules/01` + SLYNYRD); pass = score ≥ 0.70. `tools/style_profile.py` derives a StyleProfile
+  JSON from a reference PNG — `palette` (reuses `extract_palette.py`), `ramps:[{role, colors,
+  length, lint}]` (hue-clustered + luma-sorted), `light_dir` (top-left vs bottom-right luma),
+  `heads_tall` (silhouette ÷ head height), `outline_policy` (boundary sampling); `grid` /
+  `frame_counts` are Phase 2 (Sobel auto-detect). Wired into the eval harness as a new
+  deterministic gate `ramp_lint_quality` (the project's own goblin-default ramps lint as good —
+  skin 1.0, leather 0.99, mouth 0.79, tooth 0.9 — and a value-only grey ramp is flagged). Both
+  tools `--selftest`; 13/13 Tier-A checks pass. No new dependency, no Aseprite. Phase 2 (grid
+  auto-detect + `live_extract_style_profile` feeding rig-builder/animation-director) — see SPEC-008.
 - **SPEC-007 Phase 2 — degradation / persona-A/B / cross-path measurement tooling (roadmap #9).**
   The live/on-demand half: machinery is CI-verified, the *runs* are operator-driven. `judge.py`
   gains `--emit-ab <case>` (a paired **persona A/B** prompt — Variant A with the candidate

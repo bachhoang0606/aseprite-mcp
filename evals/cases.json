@@ -60,6 +60,11 @@
       "id": "degradation_slope_math",
       "covers": ["validation-harness (9.4)", "SPEC-007"],
       "asserts": "the long-session degradation helper (judge.compute_slope) flags a decaying quality series and passes a stable one"
+    },
+    {
+      "id": "ramp_lint_quality",
+      "covers": ["rules/01", "/pixel-palette", "SPEC-008"],
+      "asserts": "the project's own ramps lint as good (value-monotonic, hue-shifted, mid-peaked saturation) and a value-only grey ramp is flagged"
     }
   ]
 }
