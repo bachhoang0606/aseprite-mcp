@@ -15,6 +15,7 @@ mod live;
 mod marks;
 mod preview;
 mod reference;
+mod rotate;
 mod server;
 mod style_profile;
 mod tileset_export;

@@ -302,6 +302,28 @@ pub struct LiveDitherFillParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveRotateParams {
+    /// Rotation in degrees, **positive = clockwise**. Right angles (90/180/270) are
+    /// exact; any other angle uses the RotSprite scale-rotate-downscale pipeline.
+    pub angle: f64,
+    /// Source rectangle to rotate, in sprite pixels. Omit to rotate the whole canvas
+    /// (or the active selection's bounds when `selection_only` is true).
+    pub rect: Option<LiveRect>,
+    /// Use the active selection's bounding box as the source rect. Ignored if `rect` is
+    /// given. Errors loudly if there is no selection.
+    pub selection_only: Option<bool>,
+    /// Layer to draw the rotated copy onto. Defaults to "Rotated" (a NEW layer — the
+    /// source is left untouched; rotation reads the flattened render).
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit to use the active frame.
+    pub frame: Option<u32>,
+    /// Top-left placement of the rotated result on the canvas. Omit to centre the
+    /// rotated bounding box on the source rectangle's centre (rotate "in place").
+    pub at_x: Option<i32>,
+    pub at_y: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveCloseSpriteParams {
     pub filename: Option<String>,
     pub index: Option<u32>,
@@ -1153,6 +1175,132 @@ impl LiveBridge {
             "matrix": params.matrix.unwrap_or_else(|| "bayer4".into()),
         })
         .to_string())
+    }
+
+    /// SPEC-009: artifact-free **RotSprite** rotation — rotate a region of the rendered
+    /// sprite by any angle and stamp the clean result onto a target layer. The pure-Rust
+    /// core (`crate::rotate`) scales ×8 (Scale2×), rotates nearest-neighbour, then
+    /// downscales by per-block mode, so the output introduces **no new colours**
+    /// (palette-legal by construction); right angles are exact. Reads the flattened render
+    /// via the modal-free `save_preview` and draws via the existing `draw_pixels` path —
+    /// no new plugin command. The rotated copy lands on a NEW layer; the source is left as-is.
+    pub async fn rotate(&self, params: LiveRotateParams) -> Result<String, String> {
+        if !params.angle.is_finite() {
+            return Err(live_error("invalid_angle", "angle must be a finite number of degrees", None));
+        }
+
+        // Render the active frame to a temp 1x PNG and decode it (same path as extract_style_profile).
+        let temp = std::env::temp_dir().join(format!(
+            "aseprite_mcp_rotate_{}.png",
+            self.next_id.fetch_add(1, Ordering::Relaxed)
+        ));
+        self.command("save_preview", None, Some(json!({ "filename": temp.to_string_lossy() })))
+            .await?;
+        let decoded = image::open(&temp)
+            .map(|im| im.to_rgba8())
+            .map_err(|e| live_error("rotate_decode_failed", &format!("{e}"), None));
+        let _ = std::fs::remove_file(&temp);
+        let img = decoded?;
+        let (iw, ih) = (img.width(), img.height());
+        if iw == 0 || ih == 0 {
+            return Err(live_error("empty_sprite", "the active sprite has a zero dimension", None));
+        }
+
+        // Resolve the source rect: explicit rect, else selection bbox, else the whole canvas.
+        let rect = match params.rect {
+            Some(r) => r,
+            None if params.selection_only.unwrap_or(false) => self.selection_bounds().await?,
+            None => LiveRect { x: 0, y: 0, width: iw, height: ih },
+        };
+
+        // Clamp to the canvas; reject an empty intersection.
+        if rect.x >= iw as i32 || rect.y >= ih as i32 {
+            return Err(live_error("rect_off_canvas", "the source rect lies outside the canvas", None));
+        }
+        let rx = rect.x.max(0) as u32;
+        let ry = rect.y.max(0) as u32;
+        let rw = rect.width.min(iw - rx);
+        let rh = rect.height.min(ih - ry);
+        if rw == 0 || rh == 0 {
+            return Err(live_error("empty_rect", "the source rect has zero overlap with the canvas", None));
+        }
+        if (rw as u64) * (rh as u64) > MAX_ROTATE_AREA {
+            return Err(live_error(
+                "rect_too_large",
+                &format!(
+                    "{rw}x{rh} exceeds the {MAX_ROTATE_AREA}px rotate cap (the ×8 RotSprite buffer would be huge) — crop or scale down first"
+                ),
+                None,
+            ));
+        }
+
+        // Crop -> pure RotSprite core -> rotated raster.
+        let src = region_to_raster(&img, rx, ry, rw, rh);
+        let rotated = crate::rotate::rotsprite(&src, params.angle);
+
+        // Placement: centre the rotated bbox on the source rect's centre unless overridden.
+        let cx = rect.x as f64 + rw as f64 / 2.0;
+        let cy = rect.y as f64 + rh as f64 / 2.0;
+        let at_x = params.at_x.unwrap_or((cx - rotated.width as f64 / 2.0).round() as i32);
+        let at_y = params.at_y.unwrap_or((cy - rotated.height as f64 / 2.0).round() as i32);
+
+        let pixels = raster_to_pixels(&rotated, at_x, at_y);
+        if pixels.is_empty() {
+            return Err(live_error(
+                "empty_result",
+                "the rotated region is fully transparent — nothing to draw",
+                None,
+            ));
+        }
+        let drawn = pixels.len();
+        let distinct = rotated.distinct_colors();
+        let (ow, oh) = (rotated.width, rotated.height);
+
+        let layer = params.layer.unwrap_or_else(|| "Rotated".to_string());
+        self.draw_pixels(LiveDrawPixelsParams {
+            pixels,
+            layer: Some(layer.clone()),
+            frame: params.frame,
+        })
+        .await?;
+
+        Ok(json!({
+            "changed": true,
+            "layer": layer,
+            "angle": params.angle,
+            "source": { "x": rect.x, "y": rect.y, "width": rw, "height": rh },
+            "output": { "width": ow, "height": oh, "at_x": at_x, "at_y": at_y },
+            "pixels_drawn": drawn,
+            "distinct_colors": distinct,
+            "note": "rotated copy drawn on a new layer; the source render is unchanged",
+        })
+        .to_string())
+    }
+
+    /// Resolve the active selection's bounding box as a `LiveRect`, erroring loudly when
+    /// there is no usable selection (for `live_rotate`'s `selection_only`).
+    async fn selection_bounds(&self) -> Result<LiveRect, String> {
+        let raw = self.get_selection().await?;
+        let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+        let sel = v.get("selection");
+        let is_empty = sel
+            .and_then(|s| s.get("isEmpty"))
+            .and_then(|b| b.as_bool())
+            .unwrap_or(true);
+        let bounds = sel.and_then(|s| s.get("bounds"));
+        if let (false, Some(b)) = (is_empty, bounds) {
+            let g = |k: &str| b.get(k).and_then(|v| v.as_i64());
+            if let (Some(x), Some(y), Some(w), Some(h)) = (g("x"), g("y"), g("width"), g("height")) {
+                if w > 0 && h > 0 {
+                    return Ok(LiveRect { x: x as i32, y: y as i32, width: w as u32, height: h as u32 });
+                }
+            }
+        }
+        Err(live_error(
+            "no_selection",
+            "selection_only is set but there is no active selection — make a selection or pass `rect`",
+            None,
+        ))
     }
 
     /// Diff two animation frames as a TEXT grid (`.`=unchanged, `-`=erased, else the
@@ -2868,6 +3016,34 @@ fn grid_to_pixels(grid: &image::RgbaImage, ax: i32, ay: i32) -> Vec<LivePixel> {
     pixels
 }
 
+/// Crop a `rw × rh` region at `(rx, ry)` from a decoded render into a pure-Rust
+/// `rotate::Raster` (SPEC-009 rotation). Caller guarantees the rect is in-bounds.
+fn region_to_raster(img: &image::RgbaImage, rx: u32, ry: u32, rw: u32, rh: u32) -> crate::rotate::Raster {
+    let mut r = crate::rotate::Raster::new(rw, rh);
+    for y in 0..rh {
+        for x in 0..rw {
+            let p = img.get_pixel(rx + x, ry + y).0;
+            r.set(x, y, Rgba::rgba(p[0], p[1], p[2], p[3]));
+        }
+    }
+    r
+}
+
+/// Convert a rotated `rotate::Raster` to a `draw_pixels` batch (skips transparent cells),
+/// offset by `(ax, ay)`. Emits `#rrggbbaa` when needed so alpha is preserved exactly.
+fn raster_to_pixels(r: &crate::rotate::Raster, ax: i32, ay: i32) -> Vec<LivePixel> {
+    let mut pixels = Vec::new();
+    for y in 0..r.height {
+        for x in 0..r.width {
+            let c = r.get(x, y);
+            if !c.is_transparent() {
+                pixels.push(LivePixel { x: ax + x as i32, y: ay + y as i32, color: c.to_hex() });
+            }
+        }
+    }
+    pixels
+}
+
 /// Validate `live_save_preview` inputs without touching the bridge, so the guard
 /// is unit-testable: an empty filename or an explicit `scale` of 0 is rejected.
 fn validate_preview_request(filename: &str, scale: Option<u32>) -> Result<(), String> {
@@ -2986,6 +3162,11 @@ const MAX_MARKS: usize = 64;
 /// Upper bound on a single `dither_fill` region (px), so one call can't explode the
 /// `draw_pixels` batch; split a larger fill.
 const MAX_DITHER_AREA: u64 = 256 * 256;
+
+/// Upper bound on a single `rotate` source region (px). RotSprite scales the region ×8
+/// (×64 area) before rotating, so the cap is tighter than the dither one to bound that
+/// intermediate buffer; crop or scale down a larger subject first.
+const MAX_ROTATE_AREA: u64 = 200 * 200;
 
 /// Set-of-Mark region source, resolved by `save_preview` (SPEC-005 Phase 4): explicit
 /// source-space `Regions` (slices / layer cels read from the bridge) or `Components`

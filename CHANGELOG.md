@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **SPEC-009 COMPLETE — `live_rotate`: artifact-free RotSprite rotation, hand-rolled dep-free
+  (roadmap #8).** Rotate a region of the sprite by **any angle** (positive = clockwise) and stamp
+  the clean result onto a NEW layer (the source is untouched). The classic **RotSprite** pipeline
+  (Xenowhirl) hand-rolled in pure Rust (`src/rotate.rs`) rather than pulling the `rotsprite` crate —
+  no Windows-SAC relink: **Scale2× (EPX) ×3 → nearest-neighbour rotate into the rotated bbox → ×8
+  mode-downscale**. Every stage *selects* an existing colour and none *blends*, so the output
+  palette ⊆ input ∪ {transparent} — **palette-legal by construction**, none of the anti-aliased
+  fringe a naive rotate leaves. Right angles (0/90/180/270) are exact rearrangements. The live tool
+  reads the flattened render (modal-free `save_preview`), resolves a `rect` / `selection_only` /
+  whole canvas, centres or places the result (`at_x`/`at_y`), and draws via the existing
+  `draw_pixels` path (**no new plugin command**; source area capped at 200² px for the ×8 buffer).
+  8 unit tests (right-angle exactness, no-new-colours at 45°, √2 bbox growth, solid-stays-solid,
+  block-mode majority + deterministic tie-break, flat-image round-trip); **139 unit tests pass**;
+  the schema-contract test validates the tool. **No new dependency.** SPEC-009 is now complete.
 - **SPEC-009 Phase 2 — `live_gradient_map`: re-shade a region onto a ramp (roadmap #8).**
   Map every colour in a layer/selection to the ramp step matching its luma (dark→light) — turn a
   rough/grey region or a recolour onto a target ramp in one call. **Palette-legal by construction**
