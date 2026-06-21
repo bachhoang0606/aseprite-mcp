@@ -12,6 +12,11 @@ Checklist 9.4. Two tiers:
   passes a clean sprite and flags off-palette / orphan pixels.
 - `visual_golden_match` / `visual_detects_change` — the pixel-diff matches the
   golden and detects a changed sprite.
+- `silhouette_iou_stable` / `silhouette_iou_detects_drift` — the silhouette-IoU
+  animation-drift gate (`tools/silhouette_iou.py`, SPEC-007 Phase 1): a clean walk
+  strip stays above the 0.80 IoU floor, and a deliberately-ballooned frame is
+  **caught** below it — the cross-frame proportion drift SwordsBench names as the #1
+  animation failure. Goldens under `evals/fixtures/` (regenerate: `make_fixtures.py`).
 - `health_check_json` — the SessionStart hook emits valid context JSON.
 - `tier_b_cases_wellformed` — every Tier-B case (below) is structurally valid:
   maps to a real component + checklist id, cites existing rule files, and its
@@ -36,6 +41,8 @@ above) so they can't silently rot.
 | `tb_pixel_export` | 5.4 | `/pixel-export` |
 | `tb_animation_director` | 6.2 | `animation-director` |
 | `tb_rig_builder` | 6.4 | `rig-builder` |
+| `tb_swords_static` | 5.1 | `/pixel-new` |
+| `tb_swords_walk` | 5.3 | `/pixel-animate` |
 
 ### Running one live
 1. Connect Aseprite (`live_preflight` ready).
