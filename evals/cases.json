@@ -37,6 +37,16 @@
       "asserts": "a changed sprite diffs non-zero against the golden"
     },
     {
+      "id": "silhouette_iou_stable",
+      "covers": ["/pixel-animate", "silhouette-drift (9.3)", "SPEC-007"],
+      "asserts": "a clean walk strip keeps adjacent-frame silhouette IoU above the 0.80 drift floor"
+    },
+    {
+      "id": "silhouette_iou_detects_drift",
+      "covers": ["/pixel-animate", "silhouette-drift (9.3)", "SPEC-007"],
+      "asserts": "a deliberately-ballooned frame drops silhouette IoU below the floor (cross-frame proportion drift caught)"
+    },
+    {
       "id": "health_check_json",
       "covers": ["hook:session-health-check (7.4)"],
       "asserts": "the SessionStart hook emits valid additionalContext JSON"

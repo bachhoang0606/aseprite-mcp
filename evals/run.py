@@ -119,6 +119,28 @@ def check_visual_detects_change():
     return (not r["match"]) and r["changed"] >= 1, f"changed={r.get('changed')} (want >=1)"
 
 
+# ---- silhouette-IoU animation-drift gate (SPEC-007 Phase 1) ----
+SIL_FIXTURES = os.path.join(ROOT, "evals", "fixtures")
+SIL_FLOOR = 0.80
+SIL_FRAME_W = 24
+
+
+def _sil_min(name):
+    sil = _load_module(os.path.join(ROOT, "tools", "silhouette_iou.py"), "sil")
+    w, h, px = read_png(os.path.join(SIL_FIXTURES, name))
+    return sil.series(sil.strip_masks(w, h, px, SIL_FRAME_W))["min"]
+
+
+def check_silhouette_iou_stable():
+    m = _sil_min("walk_stable.png")
+    return m >= SIL_FLOOR, f"min IoU={m:.3f} (need >= {SIL_FLOOR})"
+
+
+def check_silhouette_iou_detects_drift():
+    m = _sil_min("walk_drift.png")
+    return m < SIL_FLOOR, f"min IoU={m:.3f} (want < {SIL_FLOOR}, drift detected)"
+
+
 def check_tier_b_cases_wellformed():
     judge = _load_module(os.path.join(ROOT, "evals", "judge.py"), "judge")
     return judge.validate()
@@ -145,6 +167,8 @@ CHECKS = {
     "linter_orphan": check_linter_orphan,
     "visual_golden_match": check_visual_golden_match,
     "visual_detects_change": check_visual_detects_change,
+    "silhouette_iou_stable": check_silhouette_iou_stable,
+    "silhouette_iou_detects_drift": check_silhouette_iou_detects_drift,
     "health_check_json": check_health_check_json,
     "tier_b_cases_wellformed": check_tier_b_cases_wellformed,
 }

@@ -94,6 +94,35 @@
         { "id": "draft_removed", "weight": 0.1, "rule": "rules/05-layers-and-rig.md", "desc": "Scratch/AI-draft layers are flagged for removal before export." },
         { "id": "depth_34", "weight": 0.05, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "For 3/4 view, near/far limb depth & occlusion are noted." }
       ]
+    },
+    {
+      "id": "tb_swords_static",
+      "component": "/pixel-new",
+      "checklist": "5.1",
+      "prompt": "Draw a 32x32 pixel-art swordsman: a humanoid character holding a sword, in 3/4 view, on a locked palette (SwordsBench static task).",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "preflight", "weight": 0.1, "must_pass": true, "rule": "skills/README.md", "desc": "Called live_preflight and only proceeded when ready:true; never fell back to batch/file tools." },
+        { "id": "silhouette", "weight": 0.3, "must_pass": true, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "The figure reads as a swordsman at 100%; the sword is a big readable shape, not a stub or noise." },
+        { "id": "palette", "weight": 0.2, "must_pass": true, "rule": "rules/01-palette-and-color.md", "desc": "A palette was locked BEFORE drawing; only palette colours used (no off-ramp strays)." },
+        { "id": "proportion", "weight": 0.2, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "Humanoid proportions are plausible (head/torso/limbs distinguishable), not an undifferentiated blob." },
+        { "id": "size", "weight": 0.1, "rule": "rules/00-core-principles.md", "desc": "Canvas is 32x32 and the subject fits with an intentional size budget." },
+        { "id": "clean", "weight": 0.1, "rule": "rules/06-review-checklist.md", "desc": "No orphan/off-palette pixels; scratch/AI-draft layers removed." }
+      ]
+    },
+    {
+      "id": "tb_swords_walk",
+      "component": "/pixel-animate",
+      "checklist": "5.3",
+      "prompt": "Animate the swordsman into a 4-frame walk cycle, keeping body volume and the sword consistent across frames (SwordsBench animation task; cross-frame proportion drift is the failure to avoid).",
+      "pass_threshold": 0.75,
+      "rubric": [
+        { "id": "keys", "weight": 0.2, "must_pass": true, "rule": "rules/04-animation.md", "desc": "Contact/passing key poses are present (pose-to-pose), not a static jitter." },
+        { "id": "no_drift", "weight": 0.3, "must_pass": true, "rule": "rules/04-animation.md", "desc": "Body volume and proportions stay consistent across frames — no cross-frame proportion drift (measurable via silhouette-IoU)." },
+        { "id": "silhouette", "weight": 0.2, "rule": "rules/03-proportions-silhouette-3-4-view.md", "desc": "Each frame reads as the swordsman; the sword stays a big readable shape, never collapsing to a stub mid-cycle." },
+        { "id": "palette", "weight": 0.15, "rule": "rules/01-palette-and-color.md", "desc": "All frames draw from ONE shared locked palette (no per-frame colour drift)." },
+        { "id": "timing_tag", "weight": 0.15, "rule": "rules/04-animation.md", "desc": "A `walk` tag with correct loop direction and plausible per-frame timing." }
+      ]
     }
   ]
 }
