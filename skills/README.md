@@ -10,6 +10,7 @@ pillar **5. Skills**.
 | [`/pixel-palette`](pixel-palette/SKILL.md) | Set / load / optimize a palette with ramps | `01` |
 | [`/pixel-shade`](pixel-shade/SKILL.md) | Apply hue-shifted ramp shading to a layer | `01`, `02` |
 | [`/pixel-animate`](pixel-animate/SKILL.md) | Build idle/walk/attack frames + tags from a rig | `04`, `05` |
+| [`/pixel-tileset`](pixel-tileset/SKILL.md) | Build + export a deduplicated tileset/tilemap (SPEC-003) | `01` + seams |
 | [`/pixel-export`](pixel-export/SKILL.md) | Export PNG/GIF/spritesheet (+ JSON meta) | `06` (output) |
 | [`/pixel-review`](pixel-review/SKILL.md) | Critique a sprite against the rulebook, scored | `06` (all) |
 | [`/pixel-reference-motion`](pixel-reference-motion/SKILL.md) | Rotoscope a video/GIF/frame sequence into a clean animation (trace over a per-frame reference) | `01`, `04` |

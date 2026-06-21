@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **`/pixel-tileset` skill (SPEC-003 checklist 5.x).** A `/pixel-*` verb that wraps the
+  live tilemap tools end-to-end: preflight + `tilemap`-capability gate, then either paint
+  a seamless mockup → `live_pack_similar_tiles` (dedupe) or author tiles →
+  `live_stamp_tiles`, review the packed tiles via `live_get_tileset` (vision PNG), validate
+  edges with `tools/seam_lint.py`, and `live_export_tileset` to Tiled/Godot/JSON (blob47
+  wangset for terrain; LDtk reads `.aseprite` directly). Palette-locked tiles, seam gate,
+  loud capability/preflight stops — no batch fallback. `skills/pixel-tileset/SKILL.md`.
 - **`/pixel-reference-motion` skill — rotoscope a reference motion into a clean animation
   (roadmap #7, research §C1).** Turn a video clip, an animated GIF, or a PNG frame sequence
   into a palette-locked pixel-art animation by importing each reference frame as a dimmed,
