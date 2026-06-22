@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **`/pixel-asset` skill — assets-first: search → preview → import (SPEC-011 follow-up).** The skill
+  (`skills/pixel-asset/`) that chains the asset-search tool into the live editor (research §F): start
+  from a curated free/CC0 source instead of inventing from text. It orchestrates existing pieces —
+  `tools/asset_search.py` (`search`/`fetch`, network-gated) → **preview the candidate** (Read the PNG
+  / `live_save_preview`) → for a **palette**, fetch into `knowledge/palettes/` and hand off to
+  `/pixel-palette load`; for an **asset image**, `fetch --url` it then `live_import_reference`
+  (with `regrid:true` for scaled refs, snapped to the active palette) onto a **locked** `Reference`
+  layer (`live_set_layer_properties editable:false`) to trace over, then restyle + `/pixel-review` (the
+  §F "missing middle step"). Provenance (`MANIFEST.json` + `CREDITS.txt`) is kept at fetch time;
+  honest licensing carried through (CC0 only where the source guarantees it; palettes = courtesy
+  attribution). No new tool, no new dependency — composes shipped tools/skills.
 - **SPEC-011 — asset search: CC0 assets + Lospec palettes, stdlib & gated (roadmap #12).** The 2D
   analog of blender-mcp's PolyHaven/Sketchfab flow (research §F): `tools/asset_search.py` searches
   curated free/CC0 sources — **Lospec** palettes (turns `knowledge/palettes/` from a handful into
