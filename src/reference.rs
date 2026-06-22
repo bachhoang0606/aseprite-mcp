@@ -199,6 +199,41 @@ pub fn distinct_colors(img: &RgbaImage) -> usize {
     seen.len()
 }
 
+/// Smallest native edge that still counts as a *real* upscale. The block-uniformity grid
+/// detector degenerates on a fully-uniform source (a solid swatch / flat background): every
+/// block at every divisor is mode-uniform, so it reports `scale = gcd(w, h)` and a native of
+/// ~1×1. A genuine sprite is at least a few pixels per side, so a smaller native is that
+/// degenerate collapse, not an upscale — see `is_real_upscale`.
+pub const MIN_NATIVE_EDGE: u32 = 4;
+
+/// Whether a `style_profile::detect_grid` result is a real upscale worth honouring for the
+/// import `regrid` path: an actual scale (`> 1`) AND a plausible (non-degenerate) native
+/// grid. Guards the all-uniform collapse (`scale == gcd`, native ~1×1) that would otherwise
+/// import the entire reference as a single cell while reporting a confident "recovery".
+pub fn is_real_upscale(scale: u32, native_w: u32, native_h: u32) -> bool {
+    scale > 1 && native_w >= MIN_NATIVE_EDGE && native_h >= MIN_NATIVE_EDGE
+}
+
+/// The regrid two-pass: recover a scaled reference to its exact native grid, then fit to the
+/// requested `target`. When `target == native` it is a single dominant-vote pass (which both
+/// recovers and snaps in one go); otherwise the native is recovered *without* snapping first,
+/// so the final fit downscales clean 1× pixels rather than the scaled blur. Pure.
+pub fn regrid_then_fit(
+    src: &RgbaImage,
+    native: (u32, u32),
+    target: (u32, u32),
+    palette: Option<&[CRgba]>,
+    method: Method,
+) -> RgbaImage {
+    if target == native {
+        return downscale_to_grid(src, target.0, target.1, palette, method);
+    }
+    // Recovering native is bounded by the source area / scale² (≤ ¼ of an already-permitted
+    // ≤MAX_SOURCE_EDGE buffer), and is freed once the fit pass produces the ≤MAX_TARGET_EDGE result.
+    let recovered = downscale_to_grid(src, native.0, native.1, None, method);
+    downscale_to_grid(&recovered, target.0, target.1, palette, method)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +334,95 @@ mod tests {
         assert_eq!(Method::parse("dominant").unwrap(), Method::Dominant);
         assert_eq!(Method::parse("average").unwrap(), Method::Average);
         assert!(Method::parse("bilinear").is_err());
+    }
+
+    /// Nearest-neighbour ×n upscale (the "fake pixel art" operator) for the regrid test.
+    fn upscale(src: &RgbaImage, n: u32) -> RgbaImage {
+        let mut out = RgbaImage::new(src.width() * n, src.height() * n);
+        for y in 0..out.height() {
+            for x in 0..out.width() {
+                out.put_pixel(x, y, *src.get_pixel(x / n, y / n));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn regrid_recovers_native_exactly() {
+        // The SPEC-006 Phase 2 guarantee: a scaled reference, de-faked, is recovered to its
+        // true 1× grid bit-for-bit. Build a varied 8×8 (adjacent pixels differ, so it reads
+        // as native), upscale 4×, then detect + downscale-to-native (the import regrid path).
+        let pal = [
+            Rgba([200, 40, 40, 255]),
+            Rgba([40, 200, 60, 255]),
+            Rgba([50, 60, 220, 255]),
+            Rgba([230, 210, 40, 255]),
+        ];
+        let mut native = RgbaImage::new(8, 8);
+        for y in 0..8 {
+            for x in 0..8 {
+                // Diagonal 4-colour stripes. After a 4× upscale the image is mode-uniform at
+                // every divisor cell up to 4 (n=2 and n=4 both pass), but a 4-colour diagonal
+                // is never uniform at n=8; since detect_grid keeps the LARGEST passing divisor,
+                // the detected scale is 4 (not 2, and not over-shooting to 8).
+                native.put_pixel(x, y, pal[((x + y) % 4) as usize]);
+            }
+        }
+        let up = upscale(&native, 4);
+
+        // detect_grid (the shared block-uniformity detector) sees the 4× scale.
+        let grid = crate::style_profile::detect_grid(&up);
+        assert_eq!((grid.scale, grid.native), (4, [8, 8]), "{grid:?}");
+
+        // Downscaling the upscaled image back to its native dims recovers it exactly.
+        let recovered = downscale_to_grid(&up, grid.native[0], grid.native[1], None, Method::Dominant);
+        assert_eq!(recovered.dimensions(), (8, 8));
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(recovered.get_pixel(x, y), native.get_pixel(x, y), "px {x},{y}");
+            }
+        }
+        // The regrid helper's single-pass branch (target == native) recovers identically.
+        assert_eq!(regrid_then_fit(&up, (8, 8), (8, 8), None, Method::Dominant), recovered);
+    }
+
+    #[test]
+    fn solid_source_is_not_a_real_upscale() {
+        // The degenerate the block-uniformity detector hits: a flat swatch reports scale ==
+        // gcd(w,h) and a native of ~1×1. is_real_upscale rejects it so regrid no-ops instead
+        // of importing the whole reference as a single cell.
+        let solid = RgbaImage::from_pixel(64, 64, Rgba([120, 80, 200, 255]));
+        let g = crate::style_profile::detect_grid(&solid);
+        assert!(g.scale > 1 && g.native == [1, 1], "expected degenerate detection: {g:?}");
+        assert!(!is_real_upscale(g.scale, g.native[0], g.native[1]), "must not honour a 1×1 native");
+        // A genuine small upscale IS honoured; native art (scale 1) is not an upscale.
+        assert!(is_real_upscale(4, 8, 8));
+        assert!(!is_real_upscale(1, 64, 64));
+    }
+
+    #[test]
+    fn regrid_two_pass_matches_true_native_fit() {
+        // The two-pass path (target != native): recover the native from the blur first, then
+        // fit — must equal fitting the TRUE native straight to the target, and differ from a
+        // naive single downscale of the scaled blur (the quality bug the two-pass avoids).
+        let pal = [
+            Rgba([200, 40, 40, 255]),
+            Rgba([40, 200, 60, 255]),
+            Rgba([50, 60, 220, 255]),
+            Rgba([230, 210, 40, 255]),
+        ];
+        let mut native = RgbaImage::new(8, 8);
+        for y in 0..8 {
+            for x in 0..8 {
+                native.put_pixel(x, y, pal[((x + y) % 4) as usize]);
+            }
+        }
+        let up = upscale(&native, 4); // 32×32, a clean 4× upscale
+        let target = (6, 6);
+        let truth = downscale_to_grid(&native, target.0, target.1, None, Method::Dominant);
+        let two_pass = regrid_then_fit(&up, (8, 8), target, None, Method::Dominant);
+        assert_eq!(two_pass, truth, "two-pass must equal fitting the true native");
+        let single = downscale_to_grid(&up, target.0, target.1, None, Method::Dominant);
+        assert_ne!(single, truth, "single-pass-from-blur should differ — the bug two-pass fixes");
     }
 }

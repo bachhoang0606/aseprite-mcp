@@ -2,10 +2,13 @@
 
 - Status: **Phase 1 landed (2026-06-21)** — `live_import_reference` ships a pure-Rust
   **content-aware downscale + palette snap** (`src/reference.rs`) drawn live via the
-  existing `draw_pixels` path (no new plugin command, no new dependency). Phase 2 (Sobel
-  grid auto-detect / imagequant auto-palette / non-PNG input) is deferred. Roadmap item
-  **#6** ("import_reference") — the unlock for the hybrid generation / reference pipeline
-  (Path 3/4, research §C2).
+  existing `draw_pixels` path (no new plugin command, no new dependency). **Phase 2 grid
+  auto-detect (`regrid`) landed (2026-06-21, roadmap #6-v2)** — a `regrid: true` option
+  recovers a *scaled* reference to its native pixel grid before snapping, reusing the proven
+  block-uniformity / GCD detector (`style_profile::detect_grid`, the `tools/regrid.py` port).
+  Still deferred from Phase 2: auto-palette (imagequant — a new crate) and non-PNG decoders.
+  Roadmap item **#6** ("import_reference") — the unlock for the hybrid generation / reference
+  pipeline (Path 3/4, research §C2).
 - Owner: project
 - Checklist items advanced: 2.x (new live-tool surface), 9.x (deterministic image
   tests — downscale + snap math)
@@ -36,15 +39,20 @@ generated assets look native (§C2).
 
 ## Inputs / Outputs
 - **Inputs (`live_import_reference`):** `filename` (a **PNG** reference on disk),
-  `width?`/`height?` (target grid — default the active sprite's size), `method?`
+  `width?`/`height?` (target grid — default the active sprite's size, or the detected native
+  resolution when `regrid` honours a real upscale), `method?`
   (`"dominant"` = per-cell palette-majority, default; `"average"` = per-cell mean),
   `palette?` (explicit `#rrggbb` list to snap to; default = the active sprite palette;
-  `snap:false` skips snapping), `layer?` (target layer, default `"Reference"`),
+  `snap:false` skips snapping), `regrid?` (Phase 2 de-fake; default `false` — auto-detect a
+  scaled reference's native pixel grid and recover it to 1× before snapping; defaults the
+  target to that native resolution when `width`/`height` are omitted; a no-op when no real
+  upscale is detected), `layer?` (target layer, default `"Reference"`),
   `frame?`, and `at_x?`/`at_y?` (top-left placement on the canvas, default 0,0).
 - **Outputs:** the converted pixels drawn onto the target layer in the open sprite
   (via the existing `draw_pixels` path — no new plugin command), plus a JSON summary of
   `{source size, target size, scale-down factor, method, palette size, pixels drawn,
-  distinct colours}`. All image math is pure Rust (no Aseprite) → unit-testable.
+  distinct colours, regrid {detected_scale, native, applied} (null unless regrid requested)}`.
+  All image math is pure Rust (no Aseprite) → unit-testable.
 
 ## Behaviour
 
@@ -72,13 +80,35 @@ output cells to a `draw_pixels` batch offset by `at_x/at_y`, and draw onto the t
 layer. Bound the target long edge (≤ 256) so the batch can't explode, and refuse a
 zero/oversized source clearly.
 
-### Phase 2 — grid auto-detect + auto-palette (deferred; spec only)
-- **Sobel-profile regrid (de-fake).** When the reference is *off-grid* AI pixel art
-  (1024px that is "really" 64×64), detect the hidden native resolution instead of being
-  told it: Sobel edge profiles per row/column → histogram-vote the dominant cell spacing
-  → snap → quantize (the unfake.js method, research §C2 — corrected from "autocorrelation").
-  Lets `width/height` be omitted for that class of input.
-- **Auto-palette.** When no palette is given and snapping is wanted, reduce the source to
+### Phase 2 — grid auto-detect (`regrid`) — LANDED 2026-06-21 (roadmap #6-v2)
+- **Regrid / de-fake (built).** When the reference is *off-grid* upscaled pixel art (a
+  1024px image that is "really" 64×64 rendered at 16×), recover the hidden native resolution
+  instead of being told it. Method as shipped is **block-uniformity / GCD**, not the
+  Sobel-profile sketch above: the largest cell size `n` (dividing the image dims) whose every
+  grid-aligned `n×n` block is mode-uniform is the scale — because every colour boundary in
+  N×-upscaled art lands on a multiple of N, so native art reports cell 1 and N×-art reports
+  cell N (the `tools/regrid.py` algorithm, already eval-gated and mirrored in
+  `style_profile::detect_grid`, now made `pub` and reused — no duplicate detector).
+  - **Wiring.** `live_import_reference` gains `regrid: bool` (default `false`). When `true`,
+    detect the native grid; if a *real* upscale is found (`is_real_upscale`: `scale > 1` AND a
+    plausible native, ≥ `MIN_NATIVE_EDGE` per side) recover the exact 1× pixels (the pure
+    `reference::regrid_then_fit` — a single dominant-vote pass when the target equals native,
+    else a two-pass *recover-native → fit*), and when `width`/`height` are omitted default the
+    target to the detected native resolution rather than the active sprite size.
+  - **Loud degradation (ADR-0005).** Two no-/loud-fail cases are handled explicitly rather
+    than silently doing the wrong thing: (a) **native art / a photo** (`scale == 1`) is a
+    **no-op** — the usual sizing applies; (b) the **degenerate all-uniform collapse** — a flat
+    swatch makes block-uniformity pass at `n = gcd(w,h)`, reporting a huge scale and a ~1×1
+    native; `is_real_upscale` rejects it (it would otherwise import the whole reference as one
+    cell), so it too is a no-op with `applied:false`. And a **detected native larger than the
+    256px import cap** with no explicit dims to fit it returns a dedicated `native_exceeds_cap`
+    error (pass an explicit `width`/`height` ≤256 — the clean recovery still runs first), not
+    the generic "choose a smaller width/height". The JSON summary gains a `regrid` block
+    (`detected_scale`, `native`, `applied`) so the agent can see what happened.
+  - **Why this over Sobel.** The block-uniformity test is exact for clean integer upscales
+    (the dominant import class) and pure/deterministic/unit-testable; the Sobel-profile
+    histogram is only needed for *noisy* off-grid sources and stays deferred.
+- **Auto-palette (still deferred).** When no palette is given and snapping is wanted, reduce the source to
   N colours (median-cut / k-means — `tools/extract_palette.py` already does this offline;
   a native port or `imagequant` would do it live). Deferred because `imagequant` is a new
   crate dependency (weigh against the lean-deps / Windows-SAC relink cost).
@@ -123,8 +153,22 @@ dep, deterministic-and-tested path.
       `grid_to_pixels` unit-tested (4). Schema-contract test covers `LiveImportReferenceParams`;
       crate is clippy-clean. A source-size guard (`MAX_SOURCE_EDGE`) reads dimensions before
       the full decode so a pathological PNG can't OOM.
-- [x] No new dependency; `cargo test --bins` runnable locally (no SAC relink). 83 tests pass.
-      **Live-verify pending an Aseprite run** (decode → downscale → `draw_pixels` onto a layer).
+- [x] **Phase 2 regrid:** `regrid: true` detects the native grid via the shared
+      `style_profile::detect_grid` (now `pub`); a real upscale is gated by the pure
+      `reference::is_real_upscale` (scale > 1 AND native ≥ `MIN_NATIVE_EDGE`), so a flat-swatch
+      degenerate (native ~1×1) is a no-op, not a 1-pixel import (`solid_source_is_not_a_real_upscale`).
+      The pure `resolve_import_target` picks the target — explicit dims win, else an honoured
+      native res, else the active sprite size — unit-tested for precedence + no-op fallback +
+      single-dim fill. Recovery is the pure `reference::regrid_then_fit`: a 4×-upscaled 8×8
+      round-trips to its native pixels bit-for-bit (`regrid_recovers_native_exactly`), and the
+      two-pass *recover→fit* to a target ≠ native equals fitting the true native (and beats a
+      single downscale of the blur — `regrid_two_pass_matches_true_native_fit`). A detected
+      native over the 256px cap with no explicit dims returns a dedicated `native_exceeds_cap`
+      error. The summary carries `regrid {detected_scale, native, applied}`. No extra bridge
+      round-trip when a detected native grid already fixes both dims.
+- [x] No new dependency; `cargo test --bins` runnable locally (no SAC relink). 143 tests pass.
+      **Live-verify pending an Aseprite run** (decode → downscale → `draw_pixels` onto a layer;
+      and a scaled-reference `regrid` recovery).
 
 ## Eval (how we grade it)
 - **Deterministic (Tier-A, no Aseprite):** the `downscale_to_grid` table above
@@ -137,9 +181,14 @@ dep, deterministic-and-tested path.
 
 ## Traceability
 - Module(s): `src/reference.rs` (pure downscale + snap core; reuses `color_ops`
-  CIELAB), `src/live.rs` `import_reference` (decode + resolve + draw via `draw_pixels`),
-  `src/server.rs` `live_import_reference` tool. No `plugin.lua` change (reuses
+  CIELAB; Phase 2 `is_real_upscale` + `regrid_then_fit` regrid helpers + `MIN_NATIVE_EDGE`),
+  `src/live.rs` `import_reference` (decode + resolve + draw via `draw_pixels`; Phase 2 `regrid`
+  orchestration, `native_exceeds_cap` guard, pure `resolve_import_target`), `src/style_profile.rs`
+  `detect_grid` (now `pub` — the block-uniformity / GCD native-grid detector reused for
+  regrid), `src/server.rs` `live_import_reference` tool. No `plugin.lua` change (reuses
   `draw_pixels` / `list_palette` / `get_sprite_info`). Pairs with `/pixel-palette` (lock a
-  palette first) and the future `pixel-reference-motion` skill (roadmap #7).
-- Test(s): `src/reference.rs::tests` (downscale/snap/transparency/area), `live.rs`
-  param-validation + summary tests; live Tier-B import-and-review run.
+  palette first) and the `pixel-reference-motion` skill (roadmap #7).
+- Test(s): `src/reference.rs::tests` (downscale/snap/transparency/area; `regrid_recovers_
+  native_exactly`, `regrid_two_pass_matches_true_native_fit`, `solid_source_is_not_a_real_upscale`),
+  `live.rs` param-validation + `resolve_import_target` precedence tests; live Tier-B
+  import-and-review run.

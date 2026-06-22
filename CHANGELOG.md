@@ -3,6 +3,27 @@
 ## Unreleased
 
 ### Added
+- **SPEC-006 Phase 2 — `live_import_reference` regrid (de-fake scaled references; roadmap #6-v2).**
+  A new `regrid: true` option recovers a *scaled* reference to its **true pixel grid** before
+  snapping. AI/diffusion output and screenshots are often a 1024×1024 image that is "really" 64×64
+  upscaled 16× — importing that as-is resamples a blurred grid. With `regrid`, the import auto-detects
+  the native cell size (block-uniformity / GCD vote, the proven `tools/regrid.py` detector now shared
+  as `style_profile::detect_grid`) and, when a real upscale is found (`scale > 1`), recovers the exact
+  1× pixels: a single dominant-vote pass when the target equals the native grid, else a two-pass
+  *recover-native → fit* so the final downscale starts from clean pixels rather than the scaled blur.
+  When `width`/`height` are omitted the import now lands on the **detected native resolution** instead
+  of the active sprite size. **Loud degradation** throughout: a native-art/photo source (`scale == 1`)
+  is a no-op; a flat-swatch *degenerate* detection (block-uniformity collapses to a ~1×1 native) is
+  rejected by `is_real_upscale` rather than silently imported as one pixel; and a detected native over
+  the 256px import cap (with no dims to fit it) returns a dedicated `native_exceeds_cap` error. The
+  summary gains a `regrid` block (`detected_scale`, `native`, `applied`). Pure, unit-tested helpers
+  (`reference::regrid_then_fit` two-pass recover→fit, `is_real_upscale`, `resolve_import_target`): a
+  4×-upscale recovers its native 8×8 bit-for-bit, the two-pass fit equals fitting the true native (and
+  beats a single downscale of the blur), a solid source is not treated as an upscale, and
+  `resolve_import_target` precedence/fallback. **143 unit tests pass**; the schema-contract test
+  validates the new param. **No new dependency, no new plugin command** — reuses the existing
+  `detect_grid` + `downscale_to_grid` + `draw_pixels` paths. SPEC-006 Phase 2 (regrid) is now landed;
+  the auto-palette / non-PNG decoders remain deferred.
 - **SPEC-009 COMPLETE — `live_rotate`: artifact-free RotSprite rotation, hand-rolled dep-free
   (roadmap #8).** Rotate a region of the sprite by **any angle** (positive = clockwise) and stamp
   the clean result onto a NEW layer (the source is untouched). The classic **RotSprite** pipeline
