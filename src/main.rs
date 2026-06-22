@@ -14,6 +14,7 @@ mod gutter;
 mod live;
 mod marks;
 mod preview;
+mod prompts;
 mod reference;
 mod rotate;
 mod server;
