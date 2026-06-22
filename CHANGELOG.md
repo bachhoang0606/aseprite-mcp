@@ -23,6 +23,23 @@
   gate, manifest/credits, guards, `--url` CLI), wired into the `quality` CI job (no network). No
   new dependency, no Rust change. (A `/pixel-asset` skill
   that chains search → preview → `live_import_reference` is the documented follow-up.)
+- **`/pixel-doctor` — diagnose the live-infra dance (roadmap #13).** A skill (`skills/pixel-doctor/`)
+  + a stdlib helper (`scripts/pixel_doctor.py`) that diagnose the recurring connection pain and give
+  the **exact** fix, so the agent stops retrying blindly (or — forbidden — falling back to offline
+  file tools). The skill's decision tree branches on `live_preflight`'s **`bridgeLinked`** field
+  (`connected = bridgeLinked && plugin_connected`): `bridgeLinked:false` → the bridge layer (missing
+  sibling `aseprite-live-bridge` beside the server exe / SAC-blocked fresh build / orphan holding the
+  port); `bridgeLinked:true` + `lastHello:null` → the plugin layer (launch Aseprite, enable the
+  extension, focus the window). The helper automates the deterministic file/config side: validates
+  the `~/.claude.json` `aseprite-live` `command` exists with its **sibling bridge co-located** (any
+  build dir — not just `target/release`), flags a **wrong-repo** pointer (underscore `aseprite_mcp`
+  vs hyphen `aseprite-mcp`) and a **shadowing** `aseprite` stdio server, replicates the offline
+  Aseprite-exe resolution (`ASEPRITE_PATH` → install dirs → PATH), detects a **stale** registered
+  binary by mtime (`serverVersion` is hardwired `0.1.0`, so it can't), reads **Windows SAC** state
+  (Enforce → OS 4551 / `EUNKNOWN`), and probes ports 9876/9877. Grounded in a code-verification pass
+  over `src/live.rs` (`spawn_bridge`, `status_json`/`preflight`) + `src/aseprite.rs`
+  (`locate_executable`). Pure diagnosis core unit-tested (18 tests) + offline `--selftest`, wired into
+  the `quality` CI job. Stdlib-only, no new dependency, no Rust change.
 - **SPEC-006 Phase 2 — `live_import_reference` regrid (de-fake scaled references; roadmap #6-v2).**
   A new `regrid: true` option recovers a *scaled* reference to its **true pixel grid** before
   snapping. AI/diffusion output and screenshots are often a 1024×1024 image that is "really" 64×64
