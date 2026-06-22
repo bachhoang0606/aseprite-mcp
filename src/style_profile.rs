@@ -102,7 +102,11 @@ fn blocks_uniform(img: &RgbaImage, n: u32, tol: f64) -> bool {
     true
 }
 
-fn detect_grid(img: &RgbaImage) -> Grid {
+/// Native-grid auto-detect for a (possibly upscaled) reference — the block-uniformity /
+/// GCD method (port of `tools/regrid.py`). Returns the largest cell size whose grid-aligned
+/// blocks are mode-uniform (so N×-upscaled art reports cell N, native art reports cell 1).
+/// Reused by `live_import_reference`'s `regrid` de-fake path (SPEC-006 Phase 2).
+pub fn detect_grid(img: &RgbaImage) -> Grid {
     let (w, h) = (img.width(), img.height());
     let limit = gcd(w, h);
     let mut cell = 1u32;

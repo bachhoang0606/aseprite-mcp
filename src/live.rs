@@ -146,6 +146,13 @@ pub struct LiveImportReferenceParams {
     pub palette: Option<Vec<String>>,
     /// Set `false` to skip palette snapping and keep the downscaled source colours.
     pub snap: Option<bool>,
+    /// De-fake a *scaled* reference. When `true`, auto-detect the source's native pixel
+    /// grid (e.g. a 1024×1024 image that is "really" 64×64 upscaled 16×) and recover it to
+    /// 1× before snapping, so the import lands on the true pixel grid. If `width`/`height`
+    /// are omitted, the target defaults to the detected native resolution (instead of the
+    /// active sprite's size). When no upscale is detected (native art / a photo), this is a
+    /// no-op and the usual sizing applies. Defaults to `false`.
+    pub regrid: Option<bool>,
     /// Target layer for the imported pixels. Defaults to "Reference".
     pub layer: Option<String>,
     /// Target frame, 1-based. Omit to use the active frame.
@@ -1734,17 +1741,50 @@ impl LiveBridge {
             ));
         }
 
-        // Resolve the target grid: explicit, else the active sprite's size.
-        let (tw, th) = match (params.width, params.height) {
-            (Some(w), Some(h)) => (w, h),
-            _ => {
-                let info: Value =
-                    serde_json::from_str(&self.get_sprite_info().await?).unwrap_or(Value::Null);
-                let sprite_w = info.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                let sprite_h = info.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                (params.width.unwrap_or(sprite_w), params.height.unwrap_or(sprite_h))
-            }
+        // Optional de-fake: detect the native pixel grid of a *scaled* reference so we can
+        // recover it to 1× (block-uniformity / GCD — `style_profile::detect_grid`). Only a
+        // *real* upscale (scale > 1 and a plausible, non-degenerate native — `is_real_upscale`)
+        // steers the target; native art / photos / flat swatches fall through unchanged.
+        let regrid = params.regrid.unwrap_or(false);
+        let detected = if regrid { Some(crate::style_profile::detect_grid(&img)) } else { None };
+        let honored = detected
+            .as_ref()
+            .is_some_and(|g| crate::reference::is_real_upscale(g.scale, g.native[0], g.native[1]));
+        // The native grid we'll actually use to steer the import (None unless honoured).
+        let native: Option<(u32, u32)> =
+            if honored { detected.as_ref().map(|g| (g.native[0], g.native[1])) } else { None };
+
+        // Resolve the target grid: explicit dims win; else the honoured native resolution;
+        // else the active sprite's size. Only fetch sprite info when a dim is still missing
+        // AND the native grid doesn't already cover it — so a scaled-with-no-dims import (the
+        // headline case) doesn't make a failure-prone bridge round-trip.
+        let need_sprite = (params.width.is_none() || params.height.is_none()) && native.is_none();
+        let sprite_dims = if need_sprite {
+            let info: Value =
+                serde_json::from_str(&self.get_sprite_info().await?).unwrap_or(Value::Null);
+            let sprite_w = info.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let sprite_h = info.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            (sprite_w, sprite_h)
+        } else {
+            (0, 0) // unused — explicit dims or a detected native grid cover the target
         };
+        // A detected native larger than the import cap, with no explicit dims to fit it,
+        // is a dead end under the generic cap error — say so specifically and actionably.
+        if let Some((nw, nh)) = native {
+            let cap = crate::reference::MAX_TARGET_EDGE;
+            if (params.width.is_none() || params.height.is_none()) && (nw > cap || nh > cap) {
+                return Err(live_error(
+                    "native_exceeds_cap",
+                    &format!(
+                        "regrid detected a native resolution of {nw}x{nh}, larger than the {cap}px \
+                         import cap — pass an explicit width/height ≤{cap} to fit (regrid still \
+                         recovers the clean 1× pixels first)"
+                    ),
+                    None,
+                ));
+            }
+        }
+        let (tw, th) = resolve_import_target((params.width, params.height), native, sprite_dims);
         validate_target_dims(tw, th)?;
 
         // Resolve the palette: explicit list, the active palette, or none (snap off).
@@ -1757,8 +1797,13 @@ impl LiveBridge {
             Some(self.fetch_active_palette().await?)
         };
 
-        // Pure core: downscale + snap.
-        let grid = crate::reference::downscale_to_grid(&img, tw, th, palette.as_deref(), method);
+        // Pure core: downscale + snap. A honoured upscale routes through the regrid two-pass
+        // (recover the exact native, then fit) so the final downscale starts from clean 1×
+        // pixels rather than the scaled blur; otherwise a plain content-aware shrink.
+        let grid = match native {
+            Some(nat) => crate::reference::regrid_then_fit(&img, nat, (tw, th), palette.as_deref(), method),
+            None => crate::reference::downscale_to_grid(&img, tw, th, palette.as_deref(), method),
+        };
         let (ax, ay) = (params.at_x.unwrap_or(0), params.at_y.unwrap_or(0));
         let pixels = grid_to_pixels(&grid, ax, ay);
         if pixels.is_empty() {
@@ -1790,6 +1835,15 @@ impl LiveBridge {
             "palette_size": palette.as_ref().map(|p| p.len()),
             "pixels_drawn": drawn,
             "distinct_colors": distinct,
+            // What the de-fake pass found/did, so the agent can see whether a scaled
+            // reference was recovered (loud) — null when regrid wasn't requested. `applied`
+            // is true only for a real upscale that was honoured; a degenerate/flat detection
+            // (e.g. native 1×1) reports its raw scale but applied:false (it was a no-op).
+            "regrid": detected.as_ref().map(|g| json!({
+                "detected_scale": g.scale,
+                "native": { "width": g.native[0], "height": g.native[1] },
+                "applied": honored,
+            })),
         })
         .to_string())
     }
@@ -2947,6 +3001,26 @@ fn validate_identifier(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Choose the `import_reference` target grid. Explicit `width`/`height` (both set) win.
+/// Otherwise, when regrid honoured a real upscale, the import defaults to the recovered
+/// **native** resolution; if there is no honoured native (native art / a photo / regrid off)
+/// it falls back to the active sprite's size. A single missing dim is filled from the native
+/// grid (if any) or the sprite. Pure → unit-testable.
+fn resolve_import_target(
+    explicit: (Option<u32>, Option<u32>),
+    native: Option<(u32, u32)>, // honoured native grid, else None
+    sprite: (u32, u32),
+) -> (u32, u32) {
+    if let (Some(w), Some(h)) = explicit {
+        return (w, h);
+    }
+    if let Some((nw, nh)) = native {
+        // A real upscale: land on the native grid, but still honour a single explicit dim.
+        return (explicit.0.unwrap_or(nw), explicit.1.unwrap_or(nh));
+    }
+    (explicit.0.unwrap_or(sprite.0), explicit.1.unwrap_or(sprite.1))
+}
+
 /// Reject a non-positive or oversized `import_reference` target — bounds the one
 /// `draw_pixels` batch the import produces. Pure → unit-testable.
 fn validate_target_dims(tw: u32, th: u32) -> Result<(), String> {
@@ -3548,6 +3622,27 @@ mod tests {
         let cap = crate::reference::MAX_TARGET_EDGE;
         assert!(validate_target_dims(cap, cap).is_ok());
         assert!(validate_target_dims(cap + 1, 32).unwrap_err().contains("target_too_large"));
+    }
+
+    #[test]
+    fn resolve_import_target_precedence() {
+        // Explicit dims always win, even over an honoured native grid.
+        assert_eq!(
+            resolve_import_target((Some(48), Some(32)), Some((64, 64)), (16, 16)),
+            (48, 32)
+        );
+        // An honoured native + no dims -> land on the native grid, NOT the active sprite size.
+        assert_eq!(resolve_import_target((None, None), Some((64, 64)), (16, 16)), (64, 64));
+        // No honoured native (native art / a photo / degenerate / regrid off) -> sprite size.
+        assert_eq!(resolve_import_target((None, None), None, (16, 16)), (16, 16));
+        assert_eq!(resolve_import_target((None, None), None, (24, 24)), (24, 24));
+        // A single explicit dim is honoured; the other comes from the native grid (if any)
+        // or the sprite (otherwise).
+        assert_eq!(
+            resolve_import_target((Some(100), None), Some((64, 64)), (16, 16)),
+            (100, 64)
+        );
+        assert_eq!(resolve_import_target((None, Some(40)), None, (16, 24)), (16, 40));
     }
 
     #[test]
