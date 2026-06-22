@@ -77,6 +77,10 @@ jobs:
         run: python tests/test_hooks.py
       - name: Palette extractor tests (frequency / median-cut / kmeans)
         run: python tests/test_extract_palette.py
+      - name: Asset search — offline self-test + unit tests (stdlib, no network; SPEC-011)
+        run: |
+          python tools/asset_search.py --selftest
+          python tests/test_asset_search.py
       - name: Visual-regression golden diff (explicit)
         run: python tests/visual/diff.py tests/visual/fixtures/good_swatch.png tests/visual/golden/good_swatch.png
       - name: Sprite linter self-check (off-palette must be caught)
