@@ -24,6 +24,29 @@
   validates the new param. **No new dependency, no new plugin command** — reuses the existing
   `detect_grid` + `downscale_to_grid` + `draw_pixels` paths. SPEC-006 Phase 2 (regrid) is now landed;
   the auto-palette / non-PNG decoders remain deferred.
+- **SPEC-010 — `pixel_creation_strategy` MCP prompt: the drawing doctrine, baked into the server
+  (roadmap #5).** The first MCP **prompt** (not a tool) — a hard-ordered, pull-only playbook the
+  client injects before any drawing/editing/animation task, so every client (Cursor / Codex /
+  Copilot, incl. non-vision) gets the doctrine, not just Claude-Code-skill users (the verified
+  blender-mcp `asset_creation_strategy()` pattern, research §B). It orders the workflow:
+  **0)** connect first (live-first / `live_preflight`); **1)** perceive before acting — a raw 32²
+  preview ≈ 4 vision patches ≈ invisible, so always `live_save_preview` (~1024px) + `live_ascii_view`
+  machine-truth; **2)** lock a palette, snap with the real CIELAB tools (never hand-pick shades);
+  **3)** prefer constrained tools (`live_import_reference`/`dither_fill`/`gradient_map`/`rotate`) over
+  hand-plotting; **4)** ramp & light discipline (`live_extract_style_profile`); **5)** re-perceive
+  before AND after (`live_frame_diff`, `live_save_filmstrip` — the API sees only a GIF's first frame);
+  **6)** validate against a hard gate; **7)** script last. Wired via rmcp's `#[prompt_router]` with a
+  `PromptRouter` field + `enable_prompts()` + manual `list_prompts`/`get_prompt` delegation (mirrors
+  the existing manual tool wiring, since the server keeps a custom `get_info`). Pure static content
+  (`src/prompts.rs`) — works disconnected. Content + registration unit-tested so the doctrine can't
+  silently rot. **Transaction/snapshot confirmation (the roadmap's part 2):** audited `plugin.lua` —
+  content/create-delete ops (`draw_pixels`, cels, frames, tags, snap/adjust, tiles) already wrap in a
+  named `app.transaction("MCP Live …")` → one Ctrl+Z per action, but in-place property-setters
+  (`set_*_properties`, `rename`/`delete`/`create-group` layer, `set_palette_color`, `resize_*`) are
+  NOT — wrapping them uniformly is recorded as a plugin follow-up (needs a validate-then-transact
+  restructure + live verify). `run_lua_script`/`execute_cli` are offline/batch (no live undo stack)
+  and gated by `ASEPRITE_MCP_ALLOW_LUA`. No plugin code change here. 146 unit tests pass. No new
+  dependency, no new plugin command.
 - **SPEC-009 COMPLETE — `live_rotate`: artifact-free RotSprite rotation, hand-rolled dep-free
   (roadmap #8).** Rotate a region of the sprite by **any angle** (positive = clockwise) and stamp
   the clean result onto a NEW layer (the source is untouched). The classic **RotSprite** pipeline

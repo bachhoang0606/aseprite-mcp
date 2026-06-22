@@ -1,7 +1,12 @@
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{
-    handler::server::{router::tool::ToolRouter, tool::ToolCallContext},
+    handler::server::{
+        prompt::PromptContext,
+        router::{prompt::PromptRouter, tool::ToolRouter},
+        tool::ToolCallContext,
+    },
     model::*,
+    prompt, prompt_router,
     service::RequestContext,
     tool, tool_router, ErrorData as McpError, RoleServer, ServerHandler,
 };
@@ -27,6 +32,7 @@ pub struct AsepriteServer {
     /// paths resolve against it when set.
     output_dir: Option<PathBuf>,
     tool_router: ToolRouter<Self>,
+    prompt_router: PromptRouter<Self>,
 }
 
 /// Read `ASEPRITE_OUTPUT_DIR`, creating the directory if it does not exist yet.
@@ -75,6 +81,7 @@ impl AsepriteServer {
             live: LiveBridge::start_from_env(),
             output_dir: resolve_output_dir(),
             tool_router: Self::tool_router(),
+            prompt_router: Self::prompt_router(),
         })
     }
 
@@ -911,6 +918,30 @@ impl AsepriteServer {
 }
 
 // ============================================================================
+// MCP Prompts (SPEC-010)
+// ============================================================================
+
+#[prompt_router]
+impl AsepriteServer {
+    /// The pixel-art creation doctrine: a hard-ordered playbook (live-first, perceive before
+    /// acting, lock+snap a palette, prefer constrained tools, ramp/light discipline, re-perceive
+    /// before & after, validate against a hard gate, script last). Static content — works even
+    /// when the live editor is disconnected. See `src/prompts.rs` and SPEC-010.
+    #[prompt(
+        name = "pixel_creation_strategy",
+        description = "Hard-ordered pixel-art workflow doctrine (perception-first, palette/ramp \
+                       discipline, constrained tools over hand-plotting, validate-then-script). \
+                       Pull this before any drawing, editing, or animation task."
+    )]
+    async fn pixel_creation_strategy(&self) -> Result<Vec<PromptMessage>, McpError> {
+        Ok(vec![PromptMessage::new_text(
+            PromptMessageRole::User,
+            crate::prompts::PIXEL_CREATION_STRATEGY,
+        )])
+    }
+}
+
+// ============================================================================
 // ServerHandler Implementation
 // ============================================================================
 
@@ -919,7 +950,9 @@ impl ServerHandler for AsepriteServer {
         // rmcp 1.x made ServerInfo/Implementation `#[non_exhaustive]`, so build via the
         // constructor + builder methods rather than a struct literal, then set our custom
         // server name (field mutation is allowed on non-exhaustive structs).
-        let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        let mut info = ServerInfo::new(
+            ServerCapabilities::builder().enable_tools().enable_prompts().build(),
+        )
             .with_instructions(
                 "Live-first Aseprite MCP server. Before any drawing or sprite-editing workflow, \
                  call live_preflight (or live_status) and only use the live_* tools once connected \
@@ -953,5 +986,47 @@ impl ServerHandler for AsepriteServer {
             next_cursor: None,
             meta: None,
         }))
+    }
+
+    // Prompts (SPEC-010): delegate to the generated PromptRouter, mirroring the manual
+    // tool wiring above (a custom `get_info` rules out the auto-`get_info` prompt_handler macro).
+    fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<GetPromptResult, McpError>> + Send + '_ {
+        let ctx = PromptContext::new(self, request.name, request.arguments, context);
+        async move { self.prompt_router.get_prompt(ctx).await }
+    }
+
+    fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListPromptsResult, McpError>> + Send + '_ {
+        std::future::ready(Ok(ListPromptsResult {
+            prompts: self.prompt_router.list_all(),
+            next_cursor: None,
+            meta: None,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SPEC-010: the server registers exactly the `pixel_creation_strategy` prompt, with a
+    /// description, via the generated PromptRouter (no need to construct the live server).
+    #[test]
+    fn prompt_router_registers_creation_strategy() {
+        let prompts = AsepriteServer::prompt_router().list_all();
+        let names: Vec<&str> = prompts.iter().map(|p| p.name.as_ref()).collect();
+        assert_eq!(
+            names,
+            vec!["pixel_creation_strategy"],
+            "expected exactly one prompt, named for the doctrine"
+        );
+        assert!(prompts[0].description.is_some(), "the prompt should carry a description");
     }
 }
