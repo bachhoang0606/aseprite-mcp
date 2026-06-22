@@ -81,6 +81,10 @@ jobs:
         run: |
           python tools/asset_search.py --selftest
           python tests/test_asset_search.py
+      - name: pixel-doctor — diagnosis self-test + unit tests (stdlib; roadmap #13)
+        run: |
+          python scripts/pixel_doctor.py --selftest
+          python tests/test_pixel_doctor.py
       - name: Visual-regression golden diff (explicit)
         run: python tests/visual/diff.py tests/visual/fixtures/good_swatch.png tests/visual/golden/good_swatch.png
       - name: Sprite linter self-check (off-palette must be caught)
