@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "note": "Offline default catalog for tools/asset_search.py (SPEC-011, roadmap #12). Lets `search` return useful results with ZERO network. Entries with `local_path` resolve colours from a repo file (accurate, no network); entries with `fetch_online:true` are pointers whose colours/contents need `--online` (or ASEPRITE_MCP_ALLOW_NET=1) to resolve. A palette is a list of colours (not a copyrightable work), so `license` records courtesy attribution, NOT a CC0 claim; the Hugging Face OpenGameArt-CC0 dataset is genuinely CC0-1.0. Always check the source_url.",
+  "palettes": [
+    {
+      "id": "pico-8",
+      "source": "local",
+      "name": "PICO-8",
+      "author": "Lexaloffle Games",
+      "license": "color list — attribution courtesy (Lexaloffle PICO-8 palette)",
+      "source_url": "https://lospec.com/palette-list/pico-8",
+      "local_path": "knowledge/palettes/pico-8.json",
+      "tags": ["16", "retro", "fantasy-console"]
+    },
+    {
+      "id": "nes",
+      "source": "local",
+      "name": "NES",
+      "author": "Nintendo (hardware palette)",
+      "license": "color list — attribution courtesy (NES hardware palette)",
+      "source_url": "https://lospec.com/palette-list/nintendo-entertainment-system",
+      "local_path": "knowledge/palettes/nes.json",
+      "tags": ["retro", "console"]
+    },
+    {
+      "id": "game-boy-dmg",
+      "source": "local",
+      "name": "Game Boy (DMG)",
+      "author": "Nintendo (hardware)",
+      "license": "color list — attribution courtesy (Game Boy DMG)",
+      "source_url": "knowledge/palettes/game-boy-dmg.json",
+      "local_path": "knowledge/palettes/game-boy-dmg.json",
+      "tags": ["4", "retro", "gameboy", "monochrome"]
+    },
+    {
+      "id": "goblin-default",
+      "source": "local",
+      "name": "Goblin (project default)",
+      "author": "this project",
+      "license": "project asset (this repo)",
+      "source_url": "rules/01-palette-and-color.md",
+      "local_path": "knowledge/palettes/goblin-default.json",
+      "tags": ["project", "hue-shifted"]
+    },
+    {
+      "id": "sweetie-16",
+      "source": "lospec",
+      "name": "Sweetie 16",
+      "author": "GrafxKid",
+      "license": "color list — attribution courtesy (see source)",
+      "source_url": "https://lospec.com/palette-list/sweetie-16",
+      "fetch_online": true,
+      "tags": ["16", "general"]
+    },
+    {
+      "id": "endesga-32",
+      "source": "lospec",
+      "name": "Endesga 32",
+      "author": "Endesga",
+      "license": "color list — attribution courtesy (see source)",
+      "source_url": "https://lospec.com/palette-list/endesga-32",
+      "fetch_online": true,
+      "tags": ["32", "general", "character"]
+    },
+    {
+      "id": "resurrect-64",
+      "source": "lospec",
+      "name": "Resurrect 64",
+      "author": "Kerrie Lake",
+      "license": "color list — attribution courtesy (see source)",
+      "source_url": "https://lospec.com/palette-list/resurrect-64",
+      "fetch_online": true,
+      "tags": ["64", "general", "detailed"]
+    },
+    {
+      "id": "apollo",
+      "source": "lospec",
+      "name": "Apollo",
+      "author": "AdamCYounis",
+      "license": "color list — attribution courtesy (see source)",
+      "source_url": "https://lospec.com/palette-list/apollo",
+      "fetch_online": true,
+      "tags": ["46", "general", "naturalistic"]
+    },
+    {
+      "id": "vinik24",
+      "source": "lospec",
+      "name": "Vinik24",
+      "author": "Vinik",
+      "license": "color list — attribution courtesy (see source)",
+      "source_url": "https://lospec.com/palette-list/vinik24",
+      "fetch_online": true,
+      "tags": ["24", "muted"]
+    }
+  ],
+  "assets": [
+    {
+      "id": "opengameart-cc0",
+      "source": "hf",
+      "kind": "dataset",
+      "name": "OpenGameArt CC0 (Hugging Face dataset)",
+      "author": "OpenGameArt.org contributors (packaged by nyuuzyou)",
+      "license": "CC0-1.0",
+      "source_url": "https://huggingface.co/datasets/nyuuzyou/OpenGameArt-CC0",
+      "hf_dataset": "nyuuzyou/OpenGameArt-CC0",
+      "fetch_online": true,
+      "tags": ["cc0", "opengameart", "assets", "sprites", "tiles"]
+    }
+  ]
+}

@@ -3,6 +3,26 @@
 ## Unreleased
 
 ### Added
+- **SPEC-011 — asset search: CC0 assets + Lospec palettes, stdlib & gated (roadmap #12).** The 2D
+  analog of blender-mcp's PolyHaven/Sketchfab flow (research §F): `tools/asset_search.py` searches
+  curated free/CC0 sources — **Lospec** palettes (turns `knowledge/palettes/` from a handful into
+  thousands) and the **Hugging Face `nyuuzyou/OpenGameArt-CC0`** dataset (15.7k genuinely-CC0
+  assets) — then `fetch`es a candidate into the project with provenance captured at fetch time
+  (`MANIFEST.json` + auto-generated `CREDITS.txt`, the ULPC pattern). **Lean-deps / Windows-SAC:**
+  stdlib only (`urllib`+`json`) — **no `requests`/`duckdb`/`pyarrow`** (the HF dataset is Parquet,
+  but its datasets-server REST API returns JSON) and **no Rust HTTP crate**. **Network egress is
+  opt-in** (`--online` or `ASEPRITE_MCP_ALLOW_NET=1`, mirroring the ADR-0003 Lua gate) with a
+  **no-API default**: offline `search` falls back to a bundled catalog (`knowledge/asset-catalog.json`)
+  so it stays useful — and CI-testable — with zero network; offline `fetch` of an online-only
+  candidate refuses **loudly** (names the flag). **Honest licensing:** CC0 only where the source
+  guarantees it (the HF dataset); a palette is a colour list (not copyrightable), recorded with
+  courtesy attribution, never relabelled CC0. Normalized source-agnostic candidate shape; URL-scheme
+  guard (http(s) only), path-traversal-safe filenames, size-capped downloads. A `fetch --url`
+  mode completes the HF flow (download an asset URL from a `search --online` result with
+  provenance). Offline `--selftest` + 26 unit tests (Lospec/HF parsers, catalog search/filter,
+  gate, manifest/credits, guards, `--url` CLI), wired into the `quality` CI job (no network). No
+  new dependency, no Rust change. (A `/pixel-asset` skill
+  that chains search → preview → `live_import_reference` is the documented follow-up.)
 - **SPEC-006 Phase 2 — `live_import_reference` regrid (de-fake scaled references; roadmap #6-v2).**
   A new `regrid: true` option recovers a *scaled* reference to its **true pixel grid** before
   snapping. AI/diffusion output and screenshots are often a 1024×1024 image that is "really" 64×64
