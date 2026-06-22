@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **SPEC-003 Phase 3 — `live_create_autotile_template`: draw ~4 quarters → get 47 tiles (roadmap #10).**
+  Completes the last deferred piece of the tilemap family. The agent draws the **4 corner quarters**
+  as a strip `[fill | outer | edge | inner]` (each `tile_size/2` square, canonical orientation:
+  `outer`=convex top-left, `edge`=boundary on top, `inner`=concave top-left notch); the tool composes
+  **all 47 blob tiles deterministically** (the 4-corners-per-tile model) onto a new layer, ready for
+  `live_pack_similar_tiles(grid_size=tile_size)` to build the tileset — with tile order matching
+  `autotile::blob47_tile_index` by construction. Pure compositor in `src/autotile.rs` (`CornerPieces`,
+  lossless `rotate90`, the `quadrant_piece` lookup, `assemble_tile`/`assemble_blob47`,
+  `slice_corner_pieces`, `sheet_dims`) — **palette-legal by construction** (only the source colours,
+  like `live_rotate`); rotation/placement verified by marker tests, the no-new-colour guarantee
+  asserted across all 47 tiles (13 autotile unit tests, 153 total). Live tool reads the render and
+  draws via the existing `draw_pixels` path — **no new plugin command, no new dependency**;
+  schema-contract test covers the new param. `wang16` is a follow-up; live-verify on an Aseprite
+  session pending.
 - **`/pixel-asset` skill — assets-first: search → preview → import (SPEC-011 follow-up).** The skill
   (`skills/pixel-asset/`) that chains the asset-search tool into the live editor (research §F): start
   from a curated free/CC0 source instead of inventing from text. It orchestrates existing pieces —

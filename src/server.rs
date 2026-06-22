@@ -692,6 +692,16 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-003 Phase 3: Generate a full blob-47 autotile sheet from FOUR corner quarters you drew as a left-to-right strip [fill | outer | edge | inner] (each tile_size/2 square; outer=convex top-left, edge=boundary on top, inner=concave top-left notch). Composes all 47 tiles deterministically onto a new layer; then run live_pack_similar_tiles (grid_size=tile_size) to build the tileset. Draw ~4 quarters, get 47 tiles."
+    )]
+    async fn live_create_autotile_template(
+        &self,
+        params: Parameters<crate::live::LiveCreateAutotileTemplateParams>,
+    ) -> Result<String, String> {
+        self.live.create_autotile_template(params.0).await
+    }
+
+    #[tool(
         description = "SPEC-003: List the tilesets in the active live sprite with 1-based index, name, tile count, grid tile-size, and base index."
     )]
     async fn live_list_tilesets(&self) -> Result<String, String> {

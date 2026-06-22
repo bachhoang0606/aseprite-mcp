@@ -60,10 +60,18 @@ New live tools, all routed through the bridge to new Lua handlers in the plugin:
   efficiency stats (`"40 cells -> 12 unique tiles"`) — usable as a wasted-near-
   duplicate lint.
 
-### Phase 3 — Autotile template generation
-- `live_create_autotile_template(tile_size, layout=blob47|wang16)` — build a
-  tilemap pre-wired so the agent only draws ~5 minitiles (or 4 corner quarters) and
-  all 16/47 combinations are composited deterministically (4-corners-per-tile model).
+### Phase 3 — Autotile template generation — LANDED 2026-06-22
+- `live_create_autotile_template(tile_size, layout=blob47)` — **built**. The agent draws the
+  **4 corner quarters** as a left-to-right strip `[fill | outer | edge | inner]` (each
+  `tile_size/2` square, in a canonical orientation: `outer`=convex top-left, `edge`=boundary on
+  top, `inner`=concave top-left notch); the tool composes **all 47 blob tiles** deterministically
+  (the 4-corners-per-tile model) and draws them as a near-square sheet on a new layer. Then
+  `live_pack_similar_tiles(grid_size=tile_size)` turns the sheet into a tileset, whose tile order
+  matches `autotile::blob47_tile_index` by construction. Pure compositor in `src/autotile.rs`
+  (`CornerPieces`, `rotate90` lossless 90° turns, `quadrant_piece` lookup, `assemble_tile` /
+  `assemble_blob47`, `slice_corner_pieces`, `sheet_dims`) — **palette-legal by construction** (only
+  the source colours, like `live_rotate`), 13 unit tests. The live tool reads the render + draws via
+  the existing `draw_pixels` path (no new plugin command). `wang16` is a documented follow-up.
 - Shared **bitmask table** (pure Rust, unit-tested, no Aseprite): 8-neighbor mask
   with corner-masking (a diagonal counts only if both adjacent cardinals are filled)
   → the 47 canonical blob states (Red Blob Games convention — see Decisions).
@@ -117,7 +125,12 @@ the only remaining user check (this server cannot launch those editors).
       tiles (16 cells → 2) + a tilemap reconstructing it pixel-for-pixel (verified
       by export grid + render).
 - [x] Phase 3: the bitmask table maps all 256 neighbor configs to the 47 blob states
-      (`src/autotile.rs::tests`, CI `cargo test`); template generation is future work.
+      (`src/autotile.rs::tests`, CI `cargo test`). **Template generation landed (2026-06-22):**
+      `live_create_autotile_template` composes all 47 tiles from 4 corner quarters via the pure
+      `assemble_blob47` compositor (rotation/placement verified by marker tests; no-new-colour
+      guarantee; `slice_corner_pieces` + `sheet_dims`), drawn live via `draw_pixels` and registered
+      (schema-contract covered). Live-verify on an Aseprite session is pending (reuses the proven
+      render + draw_pixels paths). `wang16` is a follow-up.
 - [x] Phase 4: `seamless_check` flags a deliberately broken seam and passes a correct
       wrap tile / strip (`tools/seam_lint.py`, `tests/test_seam_lint.py`, CI).
 - [x] Phase 5: whole-canvas export to Tiled `.tsj` (blob47 wangset), Godot `.tres`,
