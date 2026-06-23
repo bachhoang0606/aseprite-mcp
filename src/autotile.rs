@@ -81,6 +81,145 @@ pub fn blob47_tile_index(raw: u8) -> usize {
         .expect("canonical mask is always one of the 47 states")
 }
 
+// ---- template compositor (SPEC-003 Phase 3): assemble 47 tiles from 4 corner quarters ----
+use image::{Rgba, RgbaImage};
+
+/// The four source corner-quarters the agent draws (each `q×q`, where `q = tile_size/2`), in a
+/// canonical reference orientation:
+/// - `fill`  — solid interior;
+/// - `outer` — a CONVEX corner with the rounded/cut corner at the quarter's TOP-LEFT;
+/// - `edge`  — a straight boundary along the quarter's TOP;
+/// - `inner` — a CONCAVE corner (notch) at the quarter's TOP-LEFT.
+///
+/// The compositor rotates these to build all four quadrants of every tile, so the agent draws ~4
+/// quarters instead of 47 tiles ("draw 5 → get 47", the 4-corners-per-tile model).
+pub struct CornerPieces {
+    pub fill: RgbaImage,
+    pub outer: RgbaImage,
+    pub edge: RgbaImage,
+    pub inner: RgbaImage,
+    /// Quarter edge length (= tile_size / 2).
+    pub q: u32,
+}
+
+/// Which source quarter a tile-quadrant uses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Piece {
+    Fill,
+    Outer,
+    Edge,
+    Inner,
+}
+
+/// A tile's four quadrants (each `q×q`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Quadrant {
+    Nw,
+    Ne,
+    Se,
+    Sw,
+}
+
+/// Rotate a square `q×q` image by `r` quarter-turns clockwise (lossless — copies pixels, invents
+/// no colour, so the assembled palette ⊆ the source pieces' palette).
+pub fn rotate90(img: &RgbaImage, r: u8) -> RgbaImage {
+    let r = r % 4;
+    if r == 0 {
+        return img.clone();
+    }
+    let q = img.width();
+    debug_assert_eq!(q, img.height(), "rotate90 expects a square quarter");
+    let mut out = RgbaImage::new(q, q);
+    for y in 0..q {
+        for x in 0..q {
+            // One 90° CW step maps output (x,y) <- input (y, q-1-x); compose r times.
+            let (mut sx, mut sy) = (x, y);
+            for _ in 0..r {
+                let (nx, ny) = (sy, q - 1 - sx);
+                sx = nx;
+                sy = ny;
+            }
+            out.put_pixel(x, y, *img.get_pixel(sx, sy));
+        }
+    }
+    out
+}
+
+/// For a tile `mask` and a `quadrant`, the source `Piece` and the clockwise quarter-turns to apply.
+/// Pure lookup — the heart of the deterministic 4-corners model. Each quadrant depends only on its
+/// two adjacent cardinal edges (`a` = vertical neighbour, `b` = horizontal neighbour) and the
+/// diagonal corner `d` (which the canonical rule already cleared unless both edges are present).
+pub fn quadrant_piece(quadrant: Quadrant, mask: u8) -> (Piece, u8) {
+    let bit = |b: u8| mask & b != 0;
+    // (a, b, d, outer_rot, edge_a_rot, edge_b_rot, inner_rot) per quadrant.
+    let (a, b, d, outer_rot, edge_a_rot, edge_b_rot, inner_rot) = match quadrant {
+        Quadrant::Nw => (bit(N), bit(W), bit(NW), 0u8, 3u8, 0u8, 0u8),
+        Quadrant::Ne => (bit(N), bit(E), bit(NE), 1, 1, 0, 1),
+        Quadrant::Se => (bit(S), bit(E), bit(SE), 2, 1, 2, 2),
+        Quadrant::Sw => (bit(S), bit(W), bit(SW), 3, 3, 2, 3),
+    };
+    match (a, b, d) {
+        (false, false, _) => (Piece::Outer, outer_rot),
+        (true, false, _) => (Piece::Edge, edge_a_rot),
+        (false, true, _) => (Piece::Edge, edge_b_rot),
+        (true, true, false) => (Piece::Inner, inner_rot),
+        (true, true, true) => (Piece::Fill, 0),
+    }
+}
+
+fn blit(dst: &mut RgbaImage, src: &RgbaImage, ox: u32, oy: u32) {
+    for y in 0..src.height() {
+        for x in 0..src.width() {
+            dst.put_pixel(ox + x, oy + y, *src.get_pixel(x, y));
+        }
+    }
+}
+
+/// Assemble one `2q×2q` tile for `mask` from the four corner quarters.
+pub fn assemble_tile(mask: u8, pieces: &CornerPieces) -> RgbaImage {
+    let q = pieces.q;
+    let mut tile = RgbaImage::from_pixel(2 * q, 2 * q, Rgba([0, 0, 0, 0]));
+    for (quadrant, (ox, oy)) in [
+        (Quadrant::Nw, (0, 0)),
+        (Quadrant::Ne, (q, 0)),
+        (Quadrant::Sw, (0, q)),
+        (Quadrant::Se, (q, q)),
+    ] {
+        let (piece, rot) = quadrant_piece(quadrant, mask);
+        let src = match piece {
+            Piece::Fill => &pieces.fill,
+            Piece::Outer => &pieces.outer,
+            Piece::Edge => &pieces.edge,
+            Piece::Inner => &pieces.inner,
+        };
+        blit(&mut tile, &rotate90(src, rot), ox, oy);
+    }
+    tile
+}
+
+/// Assemble all 47 blob tiles, in canonical `blob47_masks()` order (tile index 0..=46) — so the
+/// generated sheet and the bitmask→index mapping (`blob47_tile_index`) agree by construction.
+pub fn assemble_blob47(pieces: &CornerPieces) -> Vec<RgbaImage> {
+    blob47_masks().iter().map(|&m| assemble_tile(m, pieces)).collect()
+}
+
+/// Cut the four `q×q` source quarters from a left-to-right strip `[fill | outer | edge | inner]`
+/// at `(sx, sy)` in a rendered image. Returns `None` if the strip runs off the image.
+pub fn slice_corner_pieces(img: &RgbaImage, sx: u32, sy: u32, q: u32) -> Option<CornerPieces> {
+    if q == 0 || sx + 4 * q > img.width() || sy + q > img.height() {
+        return None;
+    }
+    let cut = |i: u32| image::imageops::crop_imm(img, sx + i * q, sy, q, q).to_image();
+    Some(CornerPieces { fill: cut(0), outer: cut(1), edge: cut(2), inner: cut(3), q })
+}
+
+/// Near-square row-major grid `(cols, rows)` that holds `n` tiles (for laying out the 47-tile sheet).
+pub fn sheet_dims(n: usize) -> (u32, u32) {
+    let cols = ((n as f64).sqrt().ceil() as u32).max(1);
+    let rows = ((n as u32).div_ceil(cols)).max(1);
+    (cols, rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +273,127 @@ mod tests {
         let m = raw_mask(true, false, true, false, false, false, false, false);
         assert_eq!(m, N | S);
         assert_eq!(canonical_mask(m), N | S); // opposite edges, no valid corners
+    }
+
+    // ---- template compositor tests ----
+    fn solid(q: u32, c: [u8; 4]) -> RgbaImage {
+        RgbaImage::from_pixel(q, q, Rgba(c))
+    }
+
+    fn test_pieces() -> CornerPieces {
+        let q = 2;
+        let mut outer = solid(q, [10, 10, 10, 255]);
+        outer.put_pixel(0, 0, Rgba([200, 0, 0, 255])); // a TOP-LEFT marker to track rotation
+        CornerPieces {
+            fill: solid(q, [0, 120, 0, 255]),
+            outer,
+            edge: solid(q, [0, 0, 200, 255]),
+            inner: solid(q, [160, 160, 0, 255]),
+            q,
+        }
+    }
+
+    #[test]
+    fn rotate90_moves_a_top_left_marker_clockwise() {
+        let mut img = solid(2, [0, 0, 0, 255]);
+        img.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        let mark = |im: &RgbaImage| {
+            (0..2).flat_map(|y| (0..2).map(move |x| (x, y)))
+                .find(|&(x, y)| im.get_pixel(x, y).0 == [255, 0, 0, 255]).unwrap()
+        };
+        assert_eq!(mark(&rotate90(&img, 0)), (0, 0));
+        assert_eq!(mark(&rotate90(&img, 1)), (1, 0)); // top-left -> top-right (CW)
+        assert_eq!(mark(&rotate90(&img, 2)), (1, 1)); // -> bottom-right
+        assert_eq!(mark(&rotate90(&img, 3)), (0, 1)); // -> bottom-left
+        assert_eq!(mark(&rotate90(&img, 4)), (0, 0)); // full turn
+    }
+
+    #[test]
+    fn quadrant_piece_lookup_matches_the_model() {
+        // Fully surrounded -> every quadrant is fill.
+        for qd in [Quadrant::Nw, Quadrant::Ne, Quadrant::Se, Quadrant::Sw] {
+            assert_eq!(quadrant_piece(qd, 0xFF).0, Piece::Fill);
+            assert_eq!(quadrant_piece(qd, 0).0, Piece::Outer); // isolated -> outer corners
+        }
+        // Vertical strip (N|S): all four quadrants are single edges.
+        for qd in [Quadrant::Nw, Quadrant::Ne, Quadrant::Se, Quadrant::Sw] {
+            assert_eq!(quadrant_piece(qd, N | S).0, Piece::Edge);
+        }
+        // Connect N+E but the NE diagonal is EMPTY -> the NE quadrant is a concave inner corner.
+        assert_eq!(quadrant_piece(Quadrant::Ne, N | E).0, Piece::Inner);
+        // With the NE diagonal present -> that quadrant fills in.
+        assert_eq!(quadrant_piece(Quadrant::Ne, N | E | NE).0, Piece::Fill);
+    }
+
+    #[test]
+    fn assemble_isolated_tile_puts_outer_marks_at_the_four_tile_corners() {
+        let p = test_pieces();
+        let tile = assemble_tile(0, &p); // mask 0 -> four rotated outer corners
+        assert_eq!(tile.dimensions(), (4, 4));
+        let red = [200, 0, 0, 255];
+        // The top-left marker of `outer` rotates into each of the tile's four corners.
+        for &(x, y) in &[(0, 0), (3, 0), (3, 3), (0, 3)] {
+            assert_eq!(tile.get_pixel(x, y).0, red, "missing outer mark at {x},{y}");
+        }
+    }
+
+    #[test]
+    fn assemble_full_tile_is_solid_fill() {
+        let p = test_pieces();
+        let tile = assemble_tile(0xFF, &p);
+        for px in tile.pixels() {
+            assert_eq!(px.0, [0, 120, 0, 255]); // fill colour everywhere
+        }
+    }
+
+    #[test]
+    fn slice_corner_pieces_cuts_the_strip() {
+        // A 8x2 strip = four 2x2 quarters, each a distinct solid colour.
+        let cols = [[1, 0, 0, 255], [2, 0, 0, 255], [3, 0, 0, 255], [4, 0, 0, 255]];
+        let mut strip = RgbaImage::new(8, 2);
+        for (i, c) in cols.iter().enumerate() {
+            for dx in 0..2 {
+                for dy in 0..2 {
+                    strip.put_pixel(i as u32 * 2 + dx, dy, Rgba(*c));
+                }
+            }
+        }
+        let p = slice_corner_pieces(&strip, 0, 0, 2).unwrap();
+        assert_eq!(p.fill.get_pixel(0, 0).0, cols[0]);
+        assert_eq!(p.outer.get_pixel(0, 0).0, cols[1]);
+        assert_eq!(p.edge.get_pixel(0, 0).0, cols[2]);
+        assert_eq!(p.inner.get_pixel(0, 0).0, cols[3]);
+        // Off-image strip -> None.
+        assert!(slice_corner_pieces(&strip, 2, 0, 2).is_none());
+    }
+
+    #[test]
+    fn sheet_dims_holds_all_tiles_near_square() {
+        let (c, r) = sheet_dims(47);
+        assert_eq!((c, r), (7, 7));
+        assert!(c * r >= 47);
+        assert_eq!(sheet_dims(1), (1, 1));
+        let (c16, r16) = sheet_dims(16);
+        assert!(c16 * r16 >= 16);
+    }
+
+    #[test]
+    fn assemble_blob47_count_and_invents_no_colour() {
+        let p = test_pieces();
+        let tiles = assemble_blob47(&p);
+        assert_eq!(tiles.len(), 47);
+        // Palette ⊆ the source pieces' colours (rotation + blit copy pixels, never blend).
+        let mut allowed = std::collections::HashSet::new();
+        for piece in [&p.fill, &p.outer, &p.edge, &p.inner] {
+            for px in piece.pixels() {
+                allowed.insert(px.0);
+            }
+        }
+        for (i, tile) in tiles.iter().enumerate() {
+            assert_eq!(tile.dimensions(), (4, 4), "tile {i} wrong size");
+            for px in tile.pixels() {
+                assert!(allowed.contains(&px.0), "tile {i} invented colour {:?}", px.0);
+            }
+        }
     }
 }

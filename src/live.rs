@@ -331,6 +331,28 @@ pub struct LiveRotateParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveCreateAutotileTemplateParams {
+    /// Full tile edge in pixels — must be EVEN and in 4..=64 (each corner quarter is tile_size/2).
+    pub tile_size: u32,
+    /// Top-left of the four-quarter source strip the agent drew, laid left-to-right as
+    /// `[fill | outer | edge | inner]` (each quarter `tile_size/2` square). Canonical orientation:
+    /// `outer` = a CONVEX corner rounded at its TOP-LEFT, `edge` = a boundary along its TOP,
+    /// `inner` = a CONCAVE notch at its TOP-LEFT — the compositor rotates these into all 4 quadrants
+    /// of every tile. Defaults to 0,0.
+    pub source_x: Option<u32>,
+    pub source_y: Option<u32>,
+    /// Top-left placement of the generated 47-tile sheet. Defaults to just right of the source strip.
+    pub at_x: Option<i32>,
+    pub at_y: Option<i32>,
+    /// Autotile layout — only `"blob47"` is supported (wang16 is a follow-up). Defaults to `"blob47"`.
+    pub layout: Option<String>,
+    /// Target layer for the generated sheet. Defaults to "Autotile Template".
+    pub layer: Option<String>,
+    /// Target frame, 1-based. Omit to use the active frame.
+    pub frame: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveCloseSpriteParams {
     pub filename: Option<String>,
     pub index: Option<u32>,
@@ -1280,6 +1302,105 @@ impl LiveBridge {
             "pixels_drawn": drawn,
             "distinct_colors": distinct,
             "note": "rotated copy drawn on a new layer; the source render is unchanged",
+        })
+        .to_string())
+    }
+
+    /// SPEC-003 Phase 3: compose a full **blob-47** autotile sheet from the four corner quarters
+    /// the agent drew (`[fill | outer | edge | inner]`), drawn as a near-square grid on a new layer.
+    /// "Draw ~4 quarters → get 47 tiles." Reads the render, composes with the pure `autotile`
+    /// compositor (palette-legal by construction — only the source colours), draws via `draw_pixels`.
+    pub async fn create_autotile_template(
+        &self,
+        params: LiveCreateAutotileTemplateParams,
+    ) -> Result<String, String> {
+        let layout = params.layout.as_deref().unwrap_or("blob47");
+        if layout != "blob47" {
+            return Err(live_error(
+                "unsupported_layout",
+                &format!("layout '{layout}' not supported yet (only 'blob47'; wang16 is a follow-up)"),
+                None,
+            ));
+        }
+        let ts = params.tile_size;
+        if !(4..=MAX_AUTOTILE_TILE).contains(&ts) || ts % 2 != 0 {
+            return Err(live_error(
+                "invalid_tile_size",
+                &format!("tile_size must be an EVEN number in 4..={MAX_AUTOTILE_TILE} (got {ts})"),
+                None,
+            ));
+        }
+        let q = ts / 2;
+
+        // Render + decode the active frame (same modal-free path as live_rotate).
+        let temp = std::env::temp_dir().join(format!(
+            "aseprite_mcp_autotile_{}.png",
+            self.next_id.fetch_add(1, Ordering::Relaxed)
+        ));
+        self.command("save_preview", None, Some(json!({ "filename": temp.to_string_lossy() })))
+            .await?;
+        let decoded = image::open(&temp)
+            .map(|im| im.to_rgba8())
+            .map_err(|e| live_error("autotile_decode_failed", &format!("{e}"), None));
+        let _ = std::fs::remove_file(&temp);
+        let img = decoded?;
+
+        // Slice the four source quarters the agent drew.
+        let (sx, sy) = (params.source_x.unwrap_or(0), params.source_y.unwrap_or(0));
+        let pieces = crate::autotile::slice_corner_pieces(&img, sx, sy, q).ok_or_else(|| {
+            live_error(
+                "source_off_canvas",
+                &format!(
+                    "the 4-quarter source strip ({}x{} at {sx},{sy}) runs off the {}x{} canvas — draw \
+                     [fill|outer|edge|inner] quarters of {q}px each there first",
+                    4 * q, q, img.width(), img.height()
+                ),
+                None,
+            )
+        })?;
+
+        // Compose the 47 tiles and lay them out as a near-square sheet.
+        let tiles = crate::autotile::assemble_blob47(&pieces);
+        let (cols, rows) = crate::autotile::sheet_dims(tiles.len());
+        let at_x = params.at_x.unwrap_or((sx + 4 * q + 2) as i32);
+        let at_y = params.at_y.unwrap_or(sy as i32);
+
+        let mut pixels = Vec::new();
+        for (i, tile) in tiles.iter().enumerate() {
+            let (col, row) = (i as u32 % cols, i as u32 / cols);
+            pixels.extend(grid_to_pixels(tile, at_x + (col * ts) as i32, at_y + (row * ts) as i32));
+        }
+        if pixels.is_empty() {
+            return Err(live_error(
+                "empty_result",
+                "the composed tiles are fully transparent — draw opaque corner quarters first",
+                None,
+            ));
+        }
+        let drawn = pixels.len();
+
+        let layer = params.layer.unwrap_or_else(|| "Autotile Template".to_string());
+        self.draw_pixels(LiveDrawPixelsParams {
+            pixels,
+            layer: Some(layer.clone()),
+            frame: params.frame,
+        })
+        .await?;
+
+        Ok(json!({
+            "changed": true,
+            "layer": layer,
+            "layout": "blob47",
+            "tile_size": ts,
+            "tiles": tiles.len(),
+            "sheet": { "cols": cols, "rows": rows, "at_x": at_x, "at_y": at_y, "tile_size": ts },
+            "source": { "x": sx, "y": sy, "quarter": q },
+            "pixels_drawn": drawn,
+            "note": format!(
+                "47 blob tiles composed in canonical mask order; run live_pack_similar_tiles \
+                 grid_size={ts} over this layer to build the tileset (tile index = blob47 order, \
+                 matching autotile::blob47_tile_index)"
+            ),
         })
         .to_string())
     }
@@ -3241,6 +3362,9 @@ const MAX_DITHER_AREA: u64 = 256 * 256;
 /// (×64 area) before rotating, so the cap is tighter than the dither one to bound that
 /// intermediate buffer; crop or scale down a larger subject first.
 const MAX_ROTATE_AREA: u64 = 200 * 200;
+/// Largest tile edge `live_create_autotile_template` allows (47 tiles × this² bounds the one
+/// `draw_pixels` batch the sheet produces).
+const MAX_AUTOTILE_TILE: u32 = 64;
 
 /// Set-of-Mark region source, resolved by `save_preview` (SPEC-005 Phase 4): explicit
 /// source-space `Regions` (slices / layer cels read from the bridge) or `Components`
@@ -4413,6 +4537,7 @@ mod tests {
             LiveResizePaletteParams,
             LiveRunAppCommandParams,
             LiveCreateTilemapLayerParams,
+            LiveCreateAutotileTemplateParams,
             LiveGetTilesetParams,
             LiveTile,
             LiveStampTilesParams,
