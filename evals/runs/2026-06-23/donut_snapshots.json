@@ -1,0 +1,82 @@
+{
+  "per_frame": [
+    {
+      "frame": 1,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 2,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 3,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 4,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 5,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 6,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 7,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    },
+    {
+      "frame": 8,
+      "findings": 0,
+      "off_palette": 0,
+      "orphan": 0
+    }
+  ],
+  "snapshots": [
+    {
+      "checkpoint": 25,
+      "frames": 2,
+      "linter": 1.0,
+      "min_iou": 0.733,
+      "off_palette": 0
+    },
+    {
+      "checkpoint": 50,
+      "frames": 4,
+      "linter": 1.0,
+      "min_iou": 0.663,
+      "off_palette": 0
+    },
+    {
+      "checkpoint": 75,
+      "frames": 6,
+      "linter": 1.0,
+      "min_iou": 0.663,
+      "off_palette": 0
+    },
+    {
+      "checkpoint": 100,
+      "frames": 8,
+      "linter": 1.0,
+      "min_iou": 0.663,
+      "off_palette": 0
+    }
+  ]
+}

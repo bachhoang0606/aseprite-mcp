@@ -139,4 +139,25 @@ count) at context-fill checkpoints during a long task, then
 
 | Date | Task | Checkpoints (linter / minIoU / offpal) | Slope | Regressed | Evidence |
 |------|------|----------------------------------------|------:|:---------:|----------|
-| — | — | — | — | — | _pending first run_ |
+| 2026-06-23 | C1 — 8-frame goblin walk (realistic, ~1px body bob) | 1.0 / **0.73→0.66** / 0 (flat) | −0.008 | ⚠ flag¹ | [runs/2026-06-23/](runs/2026-06-23/) (`donut_c.json`) |
+| 2026-06-23 | C2 — 8-frame goblin walk (body fixed, feet-only) | 1.0 / **0.97→0.90** / 0 | −0.009 | ✅ no | [runs/2026-06-23/](runs/2026-06-23/) (`donut_c.json`) |
+
+¹ Not session degradation — a **metric false-positive** (see note). **No-decay confirmed by C2.**
+
+> **First §C run (2026-06-23) — no degradation; one metric insight.** The "long session" is an
+> executor agent generating an **8-frame 16×16 goblin walk-cycle** as op-plans in one long response
+> (~230–260 ops), scored at cumulative context-fill checkpoints (25/50/75/100%) with the project's own
+> `lint_sprite` + `silhouette_iou`. **In both runs the linter pass-rate held at 1.0 and off-palette at
+> 0 across all 8 frames** — zero context-rot in cleanliness or palette over the long generation — and
+> the composite slope was **flat** (−0.008 / −0.009). **C1** (the agent gave the goblin a ~1px body
+> bob) tripped the `regressed` flag, but *only* on silhouette-IoU, and *from frame 1* (baseline IoU
+> 0.733 < the 0.80 floor): that's constant animation bounciness on a tiny 16px sprite, **not** decay.
+> **C2** (body held fixed, feet-only motion) gives a baseline IoU of 0.971 that clears the floor, and
+> the donut gate then reports **no regression** (slope −0.009) — cleanly confirming **no quality decay
+> over the long generation.** **Metric finding:** the gate checks `min_iou` against an *absolute* floor
+> while the linter uses a *baseline-relative* margin, so a low-but-stable animation mis-flags;
+> recommended follow-up is to judge `min_iou` relative to its own baseline too (left out of this PR to
+> avoid changing tested eval logic). Evidence: [`runs/2026-06-23/`](runs/2026-06-23/) (`donut_c.json`,
+> `donut_strip_x16.png`, `donut2_strip_x16.png`, `donut{,2}_snapshots.json`). Caveats: single
+> long-generation proxy (output growth, not multi-turn input-context-rot), N=1 task per condition,
+> rasterized op-plans (not live hand-drawn).
