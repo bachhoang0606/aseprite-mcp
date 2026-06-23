@@ -1,0 +1,30 @@
+{
+  "run": 4,
+  "date": "2026-06-22",
+  "path": "4 Reference grounding",
+  "case": "24x24 apple -- reference import vs freehand-from-imagination (INDEPENDENT BLIND JUDGE PANEL)",
+  "step_toggled": "starting from a reference via live_import_reference vs inventing the organic shape from scratch",
+  "env": "live Aseprite 1.3.17.2 / plugin 0.3.2",
+  "also_verifies_live": "live_import_reference (base path) live E2E: decoded a 48x48 apple PNG, content-aware DOMINANT downscale to 24x24, CIELAB-snapped to a 6-colour palette, drew 231 px, 6 distinct colours (all on-palette).",
+  "method": "WITHOUT: drew a 24x24 apple freehand from imagination, no reference = cand_noref. WITH: generated an organic 48x48 apple reference (smooth radial gradient) and live_import_reference'd it to 24x24 snapped to the same 6-colour palette = cand_ref. Both rendered CLEAN; scored BLIND by an independent 3-judge panel (scrambled labels, hypothesis withheld) on rules/06.",
+  "blind_judge_panel": {
+    "judges": 3,
+    "preference_votes": { "with_reference": 3, "without": 0, "tie": 0 },
+    "mean_scores": {
+      "without_freehand": { "silhouette": 5.0, "form_light": 2.33, "linework": 3.33, "proportions": 4.0, "overall": 3.33 },
+      "with_reference":   { "silhouette": 7.67, "form_light": 7.33, "linework": 6.67, "proportions": 7.67, "overall": 7.33 }
+    },
+    "delta_overall": "+4.0 (3.33 -> 7.33)",
+    "delta_form_light": "+5.0 (2.33 -> 7.33)",
+    "delta_proportions": "+3.67 (4.0 -> 7.67)"
+  },
+  "judge_observations_blind": "All 3 judges picked the reference-grounded apple. Unprompted, they diagnosed the freehand's exact weaknesses -- 'three flat horizontal bands... textbook banding... no directional roundness... near-perfect circle... unnatural angular skirt' -- and praised the reference one's 'directional light... organic slightly-lobed silhouette... believable top dimple... value steps follow the curvature'.",
+  "verdict": "Reference grounding produced a markedly better organic sprite: 3/3 blind judges, +4.0 overall, driven by form/light (+5.0) and proportions (+3.67). This directly targets the research's #1 hardest problem (inventing organic shapes from text) and is the largest measured cross-path delta so far. It also live-verifies live_import_reference end-to-end.",
+  "caveats": [
+    "N=1 case; 3 LLM judges (model-correlated).",
+    "The reference was a synthetic organic image; a photo / AI-render reference would be the natural extension.",
+    "The 'with' is the raw import result (downscale+snap); tracing/cleaning over it would refine further.",
+    "Registered live binary predates regrid/auto_colors (base import only) -- those two SPEC-006 Phase-2 features remain unverified live until a rebuild."
+  ],
+  "evidence": ["apple_ref.png (48x48 source reference)", "cand_ref.png (with reference / import)", "cand_noref.png (freehand / without)"]
+}

@@ -25,7 +25,10 @@ LLM-judged rubric cases) are logged in [`BENCHMARK.md`](BENCHMARK.md) §A. The *
 perception** run landed 2026-06-22 in two parts: a 16×16 sword (the see-step caught a
 missing outline, 0→39/39 boundary cells) and a stronger **24×24 goblin** scored **blind
 by a 3-judge panel** — **3/3 preferred the perception version**, mean overall **5.67→7.0
-(+1.33)**, form/light +3.33 (`runs/2026-06-22/path1{,b}_perception.json`). The
+(+1.33)**, form/light +3.33 (`runs/2026-06-22/path1{,b}_perception.json`). **Path-4 reference grounding** also landed
+2026-06-22 (24×24 apple, blind 3-judge panel): **3/3 preferred the imported reference**,
+mean overall **3.33→7.33 (+4.0)**, form/light +5.0 — and it **live-verified
+`live_import_reference`** end-to-end (`runs/2026-06-22/path4_reference.json`). The
 persona-A/B and long-session degradation rows remain pending a live run.
 
 ### Known gaps surfaced by this run (backlog)
