@@ -22,9 +22,10 @@ withheld from the judge. Mean case_score 0.95.
 
 **Cross-path benchmark runs** (with/without a capability path, objective metrics — not
 LLM-judged rubric cases) are logged in [`BENCHMARK.md`](BENCHMARK.md) §A. The **Path-1
-perception** run landed 2026-06-22 (16×16 sword, live): the blind draw was objectively
-clean, and the `live_save_preview` see-step caught a missing silhouette outline
-(0→39/39 boundary cells) — see `runs/2026-06-22/path1_perception.json`. The
+perception** run landed 2026-06-22 in two parts: a 16×16 sword (the see-step caught a
+missing outline, 0→39/39 boundary cells) and a stronger **24×24 goblin** scored **blind
+by a 3-judge panel** — **3/3 preferred the perception version**, mean overall **5.67→7.0
+(+1.33)**, form/light +3.33 (`runs/2026-06-22/path1{,b}_perception.json`). The
 persona-A/B and long-session degradation rows remain pending a live run.
 
 ### Known gaps surfaced by this run (backlog)
