@@ -146,6 +146,17 @@ pub struct LiveImportReferenceParams {
     pub palette: Option<Vec<String>>,
     /// Set `false` to skip palette snapping and keep the downscaled source colours.
     pub snap: Option<bool>,
+    /// Auto-extract an N-colour palette from the reference and snap to it — so you can import a
+    /// photo / AI render without supplying a palette. 1..=256, mutually exclusive with `palette`
+    /// (and with `snap:false`). Sampled from the **raw source** (before any regrid). The extracted
+    /// palette is returned in the summary (`auto_palette`) so you can lock it on the sprite (e.g.
+    /// via `/pixel-palette`). On RGB sprites the import is on-model immediately.
+    pub auto_colors: Option<u32>,
+    /// Extraction method for `auto_colors`: "median_cut" (default), "kmeans", or "frequency".
+    /// `median_cut`/`kmeans` are **area-weighted** (a large flat background can crowd out small
+    /// bright colours); prefer **`frequency`** for art that is already limited-palette or an integer
+    /// upscale. Only used when `auto_colors` is set.
+    pub palette_method: Option<String>,
     /// De-fake a *scaled* reference. When `true`, auto-detect the source's native pixel
     /// grid (e.g. a 1024×1024 image that is "really" 64×64 upscaled 16×) and recover it to
     /// 1× before snapping, so the import lands on the true pixel grid. If `width`/`height`
@@ -1908,10 +1919,42 @@ impl LiveBridge {
         let (tw, th) = resolve_import_target((params.width, params.height), native, sprite_dims);
         validate_target_dims(tw, th)?;
 
-        // Resolve the palette: explicit list, the active palette, or none (snap off).
+        // Resolve the palette: auto-extracted from the source, an explicit list, the active
+        // palette, or none (snap off). `auto_colors` and `palette` are mutually exclusive.
         let snap = params.snap.unwrap_or(true);
+        if !snap && params.auto_colors.is_some() {
+            return Err(live_error(
+                "snap_conflict",
+                "auto_colors extracts a palette to snap to, but snap is false — drop one",
+                None,
+            ));
+        }
+        let mut auto_palette: Option<Vec<Rgba>> = None;
         let palette: Option<Vec<Rgba>> = if !snap {
             None
+        } else if let Some(n) = params.auto_colors {
+            if params.palette.is_some() {
+                return Err(live_error(
+                    "palette_conflict",
+                    "pass either `palette` or `auto_colors`, not both",
+                    None,
+                ));
+            }
+            let n = validate_auto_colors(n)?;
+            let pm = crate::palette_extract::Method::parse(
+                params.palette_method.as_deref().unwrap_or("median_cut"),
+            )
+            .map_err(|e| live_error("invalid_palette_method", &e, None))?;
+            let pal = crate::palette_extract::extract_from_image(&img, pm, n);
+            if pal.is_empty() {
+                return Err(live_error(
+                    "empty_auto_palette",
+                    "could not extract a palette — the reference is fully transparent",
+                    None,
+                ));
+            }
+            auto_palette = Some(pal.clone());
+            Some(pal)
         } else if let Some(hexes) = &params.palette {
             Some(parse_hex_palette(hexes)?)
         } else {
@@ -1964,6 +2007,15 @@ impl LiveBridge {
                 "detected_scale": g.scale,
                 "native": { "width": g.native[0], "height": g.native[1] },
                 "applied": honored,
+            })),
+            // The auto-extracted palette (hex, luma-sorted) when `auto_colors` was used — so the
+            // agent can lock it on the sprite; null otherwise. `count` may be < `requested` after
+            // dedup (e.g. a source with fewer distinct colours than asked).
+            "auto_palette": auto_palette.as_ref().map(|p| json!({
+                "method": params.palette_method.as_deref().unwrap_or("median_cut"),
+                "requested": params.auto_colors,
+                "count": p.len(),
+                "colors": p.iter().map(|c| c.to_hex()).collect::<Vec<_>>(),
             })),
         })
         .to_string())
@@ -3142,6 +3194,19 @@ fn resolve_import_target(
     (explicit.0.unwrap_or(sprite.0), explicit.1.unwrap_or(sprite.1))
 }
 
+/// Validate `auto_colors` (1..=256) for the import auto-palette. Pure → unit-testable.
+fn validate_auto_colors(n: u32) -> Result<usize, String> {
+    if (1..=256).contains(&n) {
+        Ok(n as usize)
+    } else {
+        Err(live_error(
+            "invalid_auto_colors",
+            &format!("auto_colors must be in 1..=256 (got {n})"),
+            None,
+        ))
+    }
+}
+
 /// Reject a non-positive or oversized `import_reference` target — bounds the one
 /// `draw_pixels` batch the import produces. Pure → unit-testable.
 fn validate_target_dims(tw: u32, th: u32) -> Result<(), String> {
@@ -3746,6 +3811,15 @@ mod tests {
         let cap = crate::reference::MAX_TARGET_EDGE;
         assert!(validate_target_dims(cap, cap).is_ok());
         assert!(validate_target_dims(cap + 1, 32).unwrap_err().contains("target_too_large"));
+    }
+
+    #[test]
+    fn validate_auto_colors_bounds() {
+        assert_eq!(validate_auto_colors(16).unwrap(), 16);
+        assert_eq!(validate_auto_colors(1).unwrap(), 1);
+        assert_eq!(validate_auto_colors(256).unwrap(), 256);
+        assert!(validate_auto_colors(0).unwrap_err().contains("invalid_auto_colors"));
+        assert!(validate_auto_colors(257).unwrap_err().contains("invalid_auto_colors"));
     }
 
     #[test]

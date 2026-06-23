@@ -6,7 +6,10 @@
   auto-detect (`regrid`) landed (2026-06-21, roadmap #6-v2)** — a `regrid: true` option
   recovers a *scaled* reference to its native pixel grid before snapping, reusing the proven
   block-uniformity / GCD detector (`style_profile::detect_grid`, the `tools/regrid.py` port).
-  Still deferred from Phase 2: auto-palette (imagequant — a new crate) and non-PNG decoders.
+  **Phase 2 auto-palette landed (2026-06-22)** — an `auto_colors` option extracts an N-colour
+  palette from the source and snaps to it (pure-Rust `src/palette_extract.rs`, a faithful port of
+  `tools/extract_palette.py` — median-cut / k-means / frequency — so **no `imagequant` crate**).
+  Still deferred from Phase 2: non-PNG (JPEG/WebP) decoders.
   Roadmap item **#6** ("import_reference") — the unlock for the hybrid generation / reference
   pipeline (Path 3/4, research §C2).
 - Owner: project
@@ -108,10 +111,20 @@ zero/oversized source clearly.
   - **Why this over Sobel.** The block-uniformity test is exact for clean integer upscales
     (the dominant import class) and pure/deterministic/unit-testable; the Sobel-profile
     histogram is only needed for *noisy* off-grid sources and stays deferred.
-- **Auto-palette (still deferred).** When no palette is given and snapping is wanted, reduce the source to
-  N colours (median-cut / k-means — `tools/extract_palette.py` already does this offline;
-  a native port or `imagequant` would do it live). Deferred because `imagequant` is a new
-  crate dependency (weigh against the lean-deps / Windows-SAC relink cost).
+- **Auto-palette (LANDED 2026-06-22).** When no curated palette is available, `auto_colors: N`
+  reduces the source to N colours and snaps to that — `palette_method` picks `median_cut` (default),
+  `kmeans`, or `frequency`. Implemented as a **faithful pure-Rust port** of `tools/extract_palette.py`
+  in `src/palette_extract.rs` (median-cut splits the widest channel; k-means is median-cut-seeded
+  Lloyd's; luma-sorted + deduped; opaque-only, stride-capped at 50 000 samples) — **no `imagequant`
+  crate, no SAC relink cost**, unit-tested (incl. a Python-parity regression on a tie-heavy input —
+  `median_cut` uses an order-preserving `Vec::remove` to mirror Python's `list.pop`, not
+  `swap_remove`). `auto_colors` is mutually exclusive with `palette` and with `snap:false` (both
+  loud conflict errors); the extracted palette is returned in the summary
+  (`auto_palette {method, requested, count, colors}`, `count` may be < `requested` after dedup) so
+  the agent can lock it on the sprite. **`median_cut`/`kmeans` are area-weighted** (a large flat
+  background can crowd out small bright colours) — prefer `frequency` for already-limited or
+  integer-upscaled art. Sampled from the raw source (before regrid). Indexed sprites should apply it
+  first; RGB imports are on-model at once.
 - **Non-PNG input.** Enabling JPEG/WebP in the `image` crate is a feature-flag (dependency)
   change with the same SAC/relink cost; deferred — v1 documents "convert to PNG first".
 

@@ -3,6 +3,21 @@
 ## Unreleased
 
 ### Added
+- **SPEC-006 Phase 2 — `live_import_reference` auto-palette (no curated palette needed; roadmap #6).**
+  Closes the last deferred sub-capability of import. A new `auto_colors: N` option extracts an
+  N-colour palette **from the reference itself** and snaps the import to it — so "import this photo
+  as a 16-colour 48×48" works without supplying or having a palette. `palette_method` picks
+  `median_cut` (default), `kmeans`, or `frequency`. Implemented as a **faithful pure-Rust port** of
+  the offline `tools/extract_palette.py` in `src/palette_extract.rs` (median-cut splits the widest
+  channel; k-means is median-cut-seeded Lloyd's; luma-sorted + deduped; opaque-only, stride-capped at
+  50 000 samples) — so it needs **no `imagequant` crate** (the original deferral reason) and no
+  Windows-SAC relink. `auto_colors` is mutually exclusive with `palette` (loud conflict error); the
+  extracted palette is returned in the summary (`auto_palette`) so the agent can lock it on the sprite
+  (e.g. via `/pixel-palette`). `auto_colors` is mutually exclusive with `palette` and with `snap:false`
+  (both loud); the summary's `auto_palette` reports `{method, requested, count, colors}`. 9 new unit
+  tests (median-cut/k-means determinism + a **Python-parity regression** on a tie-heavy input —
+  `median_cut` mirrors Python's order-preserving `pop`, not `swap_remove`; frequency; transparency;
+  bounds), 162 total; schema-contract covers the new params. **No new dependency, no new plugin command.**
 - **SPEC-003 Phase 3 — `live_create_autotile_template`: draw ~4 quarters → get 47 tiles (roadmap #10).**
   Completes the last deferred piece of the tilemap family. The agent draws the **4 corner quarters**
   as a strip `[fill | outer | edge | inner]` (each `tile_size/2` square, canonical orientation:
