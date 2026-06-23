@@ -81,11 +81,34 @@ consistent sign over ≥3 runs** — otherwise it stays out (the source's claim 
 
 | Run | Date | Case | A_score (persona) | B_score (baseline) | Δ (A − B) | Evidence |
 |----:|------|------|------------------:|-------------------:|----------:|----------|
-| 1 | — | — | — | — | — | _pending_ |
+| 1 | 2026-06-23 | tb_swords_static (32×32 swordsman, blind 3-judge) | overall **7.67** (0.77) | overall **3.33** (0.33) | **+4.33 overall (+0.43) · 3/3 blind judges** | [runs/2026-06-23/](runs/2026-06-23/) |
 | 2 | — | — | — | — | — | _pending_ |
 | 3 | — | — | — | — | — | _pending_ |
 
-**Mean Δ:** _pending_ · **Decision:** _pending (adopt iff mean Δ ≥ +0.05, consistent sign)_
+**Mean Δ (1 run):** +0.43 on the 0–1 case scale · **Decision:** _still pending — adopt iff mean Δ ≥ +0.05 with consistent sign over **≥3** runs; run 1 is promising but heavily confounded (see note)._
+
+> **Run 1 (2026-06-23, Persona A/B).** Case `tb_swords_static` — a 32×32 swordsman, 3/4 view,
+> on a locked 12-colour palette, **both variants drawn live**. **Variant B (baseline, no persona):**
+> a sincere default — flat single-value fills, no outline, a thin vertical sword, blocky symmetric
+> stance. **Variant A (with the candidate persona line):** the same brief on the same palette with
+> the persona doctrine applied — a planned readable 3/4 silhouette, a 1px dark outline, hue-shifted
+> volume shading (upper-left light), a big diagonal blade with crossguard/grip/pommel, and separated
+> shaded legs. Both verified **100% on-palette** (so the persona's palette-discipline claim was
+> already met by both; the delta is silhouette/form/proportion). The two clean renders were scored
+> **blind by an independent 3-judge panel** (neutral labels, persona placed *second* to counter
+> first-position bias, hypothesis withheld). Result: **3/3 preferred the persona variant**, mean
+> overall **3.33 → 7.67 (+4.33)**, driven by **form/light +4.67** and **silhouette +3.67** — and,
+> unprompted, every judge named the doctrine's exact levers ("clean intentional dark outline",
+> "value ramp", "a large diagonal blade with a crossguard/pommel that an arm visibly grips") vs the
+> baseline's "flat single-fill blocks … fused legs … floating tab-arms". Evidence:
+> [`runs/2026-06-23/`](runs/2026-06-23/) (`persona_A.png` / `persona_B.png` + `persona_ab1.json`).
+> **Honest caveats — read before trusting the magnitude:** a *single operator drew both* and cannot
+> un-know the persona, deliberately applying the doctrine to A while drawing B as a plain default, so
+> this largely re-demonstrates the **Path-1 finding** (outline + value ramp beat flat) under a persona
+> label rather than isolating whether the persona *string* causes better output; A was also drawn
+> second (practice/order effect). The magnitude is therefore an **upper bound**. The proper de-confounded
+> design — two *independent* executor agents, one given the persona line and one not, each drawing
+> blind, then judged blind — stays pending, as do runs 2–3 (the decision needs **≥3** runs).
 
 ## C. Long-session degradation (donut test)
 Snapshot an objective quality vector (linter pass-rate, min silhouette-IoU, off-palette

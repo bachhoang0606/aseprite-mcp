@@ -28,8 +28,16 @@ by a 3-judge panel** — **3/3 preferred the perception version**, mean overall 
 (+1.33)**, form/light +3.33 (`runs/2026-06-22/path1{,b}_perception.json`). **Path-4 reference grounding** also landed
 2026-06-22 (24×24 apple, blind 3-judge panel): **3/3 preferred the imported reference**,
 mean overall **3.33→7.33 (+4.0)**, form/light +5.0 — and it **live-verified
-`live_import_reference`** end-to-end (`runs/2026-06-22/path4_reference.json`). The
-persona-A/B and long-session degradation rows remain pending a live run.
+`live_import_reference`** end-to-end (`runs/2026-06-22/path4_reference.json`).
+
+**Persona A/B (BENCHMARK.md §B) Run 1 landed 2026-06-23** (`tb_swords_static`, 32×32
+swordsman, both variants drawn live, blind 3-judge panel): **3/3 preferred the
+persona variant**, mean overall **3.33 → 7.67 (+4.33 / +0.43 on the 0–1 scale)**,
+form/light +4.67 (`runs/2026-06-23/persona_ab1.json`). **Promising but heavily
+confounded** — one operator drew both, applying the doctrine to A vs a plain default B,
+so it largely re-shows the Path-1 outline+shading win under a persona label; the
+magnitude is an upper bound and the decision still needs ≥3 (ideally
+independent-executor) runs. The long-session degradation row remains pending.
 
 ### Known gaps surfaced by this run (backlog)
 - ~~**5.4 export — JSON lacks `frameTags`.**~~ **FIXED 2026-06-10:**
