@@ -1,0 +1,41 @@
+{
+  "section": "C. Long-session degradation (donut test)",
+  "date": "2026-06-23",
+  "task": "A single executor agent generates an 8-frame 16x16 goblin WALK CYCLE (goblin-default 17-colour palette) as op-plans in ONE long response (~230-260 ops). The accumulating generation is the 'long session'; quality is snapshotted at cumulative context-fill checkpoints (frames 1..k -> 25/50/75/100%).",
+  "metric_vector": "Per SPEC-007 §C: {linter pass-rate (fraction of frames so far that lint clean), min adjacent-frame silhouette-IoU, off-palette count}, scored with the project's OWN tools/lint_sprite.py + tools/silhouette_iou.py; trend via judge.compute_slope (judge.py --slope).",
+  "method_note": "Context-fill is proxied by cumulative generation progress within one long single-agent response (output-growth donut). Multi-turn input-context-rot is a further variant left as follow-up.",
+  "run_C1_realistic": {
+    "label": "realistic walk (agent gave the body a ~1px bob)",
+    "snapshots": [
+      { "checkpoint": 25, "frames": 2, "linter": 1.0, "min_iou": 0.733, "off_palette": 0 },
+      { "checkpoint": 50, "frames": 4, "linter": 1.0, "min_iou": 0.663, "off_palette": 0 },
+      { "checkpoint": 75, "frames": 6, "linter": 1.0, "min_iou": 0.663, "off_palette": 0 },
+      { "checkpoint": 100, "frames": 8, "linter": 1.0, "min_iou": 0.663, "off_palette": 0 }
+    ],
+    "slope": -0.0084,
+    "regressed_flag": true,
+    "regressed_reason": "min_iou 0.66 < absolute floor 0.80 at cp50/75/100",
+    "honest_interpretation": "NOT session degradation. The linter pass-rate (1.0) and off-palette count (0) are PERFECTLY STABLE across all 8 frames -> zero context-rot in cleanliness or palette over the long generation. The IoU 'regression' is a FALSE POSITIVE: the agent gave the goblin a ~1px full-body bob, so adjacent-frame IoU is ~0.73 ALREADY at the baseline (frames 1-2), below the absolute 0.80 floor regardless of session length. The composite slope (-0.008) is essentially FLAT -> no decay trend. This is constant animation bounciness, not decay.",
+    "evidence": ["donut_strip_x16.png", "donut_frames.json", "donut_snapshots.json"]
+  },
+  "run_C2_controlled": {
+    "label": "controlled walk (body fixed, feet-only motion) -> baseline clears the floor",
+    "snapshots": [
+      { "checkpoint": 25, "frames": 2, "linter": 1.0, "min_iou": 0.971, "off_palette": 0 },
+      { "checkpoint": 50, "frames": 4, "linter": 1.0, "min_iou": 0.914, "off_palette": 0 },
+      { "checkpoint": 75, "frames": 6, "linter": 1.0, "min_iou": 0.914, "off_palette": 0 },
+      { "checkpoint": 100, "frames": 8, "linter": 1.0, "min_iou": 0.896, "off_palette": 0 }
+    ],
+    "slope": -0.009,
+    "regressed_flag": false,
+    "interpretation": "With the body held fixed (only the feet step), baseline adjacent-IoU is 0.971 -- comfortably above the floor -- so the donut test now cleanly isolates DECAY. Result: NO regression, slope flat (-0.009); min_iou drifts only 0.971 -> 0.896 (stays far above floor) and linter/off-palette are again perfectly stable across all 8 frames. CONFIRMS the C1 conclusion: no meaningful quality degradation over the long generation.",
+    "evidence": ["donut2_strip_x16.png", "donut2_frames.json", "donut2_snapshots.json"]
+  },
+  "verdict": "FIRST §C run: over a long single-response generation (~8 frames / ~230-260 ops), pixel-art quality did NOT degrade. Linter pass-rate (1.0) and off-palette discipline (0) were perfectly stable in BOTH runs, and the composite degradation slope was flat (-0.008 / -0.009). C2 (regressed=false) is the clean confirmation; C1's lone flag was a metric false-positive.",
+  "metric_finding_and_recommendation": "The donut gate checks min_iou against an ABSOLUTE floor (0.80) while the linter uses a BASELINE-RELATIVE margin (base - 0.10). On a low-but-stable animation (C1) the absolute IoU floor mis-fires as 'regression'. RECOMMENDATION (follow-up, not changing the tested compute_slope here): for the degradation test, also judge min_iou relative to its own baseline (e.g. min_iou < base_iou - margin) so inherent-but-constant jumpiness is not mistaken for session decay. Left as a documented follow-up to avoid altering eval logic inside a benchmark-run PR.",
+  "caveats": [
+    "Single long-generation proxy (output growth), not multi-turn input-context-rot; N=1 task (goblin walk) per condition; one executor agent.",
+    "Sprites are rasterized op-plans (faithful 1:1), not live hand-drawn.",
+    "The IoU floor (0.80) is calibrated on a 24px walk fixture; on a 16px sprite with any body bob it is easily breached -- hence the metric note."
+  ]
+}

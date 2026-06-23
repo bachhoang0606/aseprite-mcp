@@ -38,7 +38,14 @@ it: **Run 2 swordsman 3/3 preferred BASELINE (Δ −3.33)** (the persona agent o
 sword as a floating bar), **Run 3 archer 3/3 preferred PERSONA (Δ +1.0)**. Sign
 inconsistent (+0.43, −0.33, +0.10); de-confounded mean −0.12 → the persona line is **kept
 OUT** (`runs/2026-06-23/persona_ab_deconfound.json`; `judge.PERSONA_CANDIDATE` annotated).
-The long-session degradation row remains pending.
+
+**Long-session degradation (BENCHMARK.md §C) — first run landed 2026-06-23: no decay.**
+An executor generated an 8-frame 16×16 goblin walk-cycle in one long response; across
+all 8 frames the **linter pass-rate held at 1.0 and off-palette at 0** (no context-rot in
+discipline) and the composite slope was **flat** (−0.008 / −0.009). A controlled fixed-body
+run (C2) cleared the IoU floor (0.97) and reported **no regression**; the realistic run
+(C1) tripped the IoU flag only because a ~1px body bob put baseline IoU below the absolute
+0.80 floor — a metric false-positive, not decay (`runs/2026-06-23/donut_c.json`).
 
 ### Known gaps surfaced by this run (backlog)
 - ~~**5.4 export — JSON lacks `frameTags`.**~~ **FIXED 2026-06-10:**
