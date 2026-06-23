@@ -1,0 +1,42 @@
+{
+  "run": 2,
+  "date": "2026-06-22",
+  "path": "1 Perception",
+  "case": "16x16 side-view sword (SwordsBench-style static, scoped single example)",
+  "step_toggled": "the live_save_preview see-step in the draw -> see -> fix loop",
+  "env": "live Aseprite 1.3.17.2 / plugin 0.3.2 (live_preflight ready)",
+  "method": "Drew the sword once WITHOUT the see-step (blind, executed from a fixed coordinate plan, 33 px) = variant B. Then applied the perception loop on the same sprite: live_save_preview (16x upscale + coordinate gutter + inline image + components Set-of-Mark), inspected the rendered pixels, and fixed the defect the render revealed (39 px outline) = variant A. B's pixels are a strict subset of A's, so the only difference is what the see-step added.",
+  "without": {
+    "opaque_px": 33,
+    "connected_components": 1,
+    "orphans": 0,
+    "off_palette": 0,
+    "outline": "absent (palette index 0, the cool-dark outline, was never placed)",
+    "silhouette_boundary_outlined": "0/39"
+  },
+  "with": {
+    "opaque_px": 72,
+    "connected_components": 1,
+    "orphans": 0,
+    "off_palette": 0,
+    "outline": "1px hue-shifted cool-dark #2a2e3a around the full silhouette (rules/02)",
+    "silhouette_boundary_outlined": "39/39"
+  },
+  "defect_caught_by_seeing": "The blind draw left the silhouette with NO outline (the outline colour was never used); the rendered preview made it obvious. rules/02 + rules/06 want a 1px hue-shifted dark outline so the sprite reads at 100%.",
+  "objective_delta": {
+    "spatial_defects_components_orphans_offpalette": "0 -> 0 (the blind draw was already clean: 1 connected component, no orphans, fully on-palette)",
+    "silhouette_outline_coverage": "0/39 -> 39/39 boundary cells outlined"
+  },
+  "verdict": "On this scoped case, perception's MEASURABLE contribution was a readability fix (the missing outline), not error-correction — because a carefully coordinate-planned 16x16 sprite leaves no objective spatial defects to catch. The see-step did surface and let me fix a real rules-defined defect the blind pass missed.",
+  "caveats": [
+    "N=1, single scoped case (matches the Path-2 row's bar).",
+    "A single agent drew AND assessed (no independent blind LLM judge in this run), so the readability improvement is rules-grounded but not externally scored.",
+    "The objective spatial-defect metric (orphans / off-palette) was uninformative here because careful coordinate planning is itself a form of verification; perception's headline error-CATCHING value (orphans, asymmetry, off-by-one) is better shown on a complex/freehand sprite or with an independent judge -- still the open Path-1 measurement."
+  ],
+  "evidence": [
+    "path1_without.png (variant B preview, with component overlay)",
+    "path1_with.png (variant A preview, with component overlay)",
+    "path1_with_clean.png (variant A, bare upscale)",
+    "_seed16.png (blank canvas seed)"
+  ]
+}

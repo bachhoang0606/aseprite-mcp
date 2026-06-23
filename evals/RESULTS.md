@@ -20,6 +20,13 @@ an **independent judge subagent** scored objective evidence (tool outputs +
 rendered layer/sheet PNGs) against `tier_b.json` rubrics — executor opinions were
 withheld from the judge. Mean case_score 0.95.
 
+**Cross-path benchmark runs** (with/without a capability path, objective metrics — not
+LLM-judged rubric cases) are logged in [`BENCHMARK.md`](BENCHMARK.md) §A. The **Path-1
+perception** run landed 2026-06-22 (16×16 sword, live): the blind draw was objectively
+clean, and the `live_save_preview` see-step caught a missing silhouette outline
+(0→39/39 boundary cells) — see `runs/2026-06-22/path1_perception.json`. The
+persona-A/B and long-session degradation rows remain pending a live run.
+
 ### Known gaps surfaced by this run (backlog)
 - ~~**5.4 export — JSON lacks `frameTags`.**~~ **FIXED 2026-06-10:**
   `export_spritesheet` now passes `--list-tags` by default whenever a JSON data
