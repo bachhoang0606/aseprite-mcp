@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **SPEC-003 Phase 3 — `wang16` autotile layout (edge-only 16-tile set).** Completes the
+  `live_create_autotile_template` layouts: `layout="wang16"` composes the 16 edge-only tiles
+  (indexed directly by the 4-bit cardinal mask `N|E|S|W`, 0..=15) from the same 4 corner quarters.
+  Elegant reuse — wang16 ignores diagonals, so it's exactly the blob-47 compositor with the corner
+  bits forced on (`assemble_wang16` = `assemble_tile(mask | ALL_CORNERS)`), meaning a both-edges
+  quadrant is always `fill`, never the concave `inner` (so the `inner` quarter is unused). Pure,
+  unit-tested (16 tiles, never uses `inner`, fill-on-both-edges); 163 total. No new plugin command,
+  no new dependency.
 - **SPEC-006 Phase 2 — `live_import_reference` auto-palette (no curated palette needed; roadmap #6).**
   Closes the last deferred sub-capability of import. A new `auto_colors: N` option extracts an
   N-colour palette **from the reference itself** and snaps the import to it — so "import this photo

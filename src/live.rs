@@ -355,7 +355,8 @@ pub struct LiveCreateAutotileTemplateParams {
     /// Top-left placement of the generated 47-tile sheet. Defaults to just right of the source strip.
     pub at_x: Option<i32>,
     pub at_y: Option<i32>,
-    /// Autotile layout — only `"blob47"` is supported (wang16 is a follow-up). Defaults to `"blob47"`.
+    /// Autotile layout: `"blob47"` (default — 47 corner+edge tiles) or `"wang16"` (16 edge-only
+    /// tiles, indexed by the 4-bit cardinal mask; the `inner` source quarter is unused).
     pub layout: Option<String>,
     /// Target layer for the generated sheet. Defaults to "Autotile Template".
     pub layer: Option<String>,
@@ -1326,10 +1327,10 @@ impl LiveBridge {
         params: LiveCreateAutotileTemplateParams,
     ) -> Result<String, String> {
         let layout = params.layout.as_deref().unwrap_or("blob47");
-        if layout != "blob47" {
+        if layout != "blob47" && layout != "wang16" {
             return Err(live_error(
                 "unsupported_layout",
-                &format!("layout '{layout}' not supported yet (only 'blob47'; wang16 is a follow-up)"),
+                &format!("layout '{layout}' not supported (use 'blob47' or 'wang16')"),
                 None,
             ));
         }
@@ -1370,8 +1371,13 @@ impl LiveBridge {
             )
         })?;
 
-        // Compose the 47 tiles and lay them out as a near-square sheet.
-        let tiles = crate::autotile::assemble_blob47(&pieces);
+        // Compose the tiles (blob-47 corners+edges, or wang-16 edge-only) and lay them out as a
+        // near-square sheet.
+        let tiles = if layout == "wang16" {
+            crate::autotile::assemble_wang16(&pieces)
+        } else {
+            crate::autotile::assemble_blob47(&pieces)
+        };
         let (cols, rows) = crate::autotile::sheet_dims(tiles.len());
         let at_x = params.at_x.unwrap_or((sx + 4 * q + 2) as i32);
         let at_y = params.at_y.unwrap_or(sy as i32);
@@ -1398,19 +1404,23 @@ impl LiveBridge {
         })
         .await?;
 
+        let index_note = if layout == "wang16" {
+            "16 wang tiles (edge-only); tile index = the 4-bit cardinal mask N|E|S|W (0..=15)"
+        } else {
+            "47 blob tiles in canonical mask order; tile index = blob47 order (autotile::blob47_tile_index)"
+        };
         Ok(json!({
             "changed": true,
             "layer": layer,
-            "layout": "blob47",
+            "layout": layout,
             "tile_size": ts,
             "tiles": tiles.len(),
             "sheet": { "cols": cols, "rows": rows, "at_x": at_x, "at_y": at_y, "tile_size": ts },
             "source": { "x": sx, "y": sy, "quarter": q },
             "pixels_drawn": drawn,
             "note": format!(
-                "47 blob tiles composed in canonical mask order; run live_pack_similar_tiles \
-                 grid_size={ts} over this layer to build the tileset (tile index = blob47 order, \
-                 matching autotile::blob47_tile_index)"
+                "{index_note}; run live_pack_similar_tiles grid_size={ts} over this layer to build \
+                 the tileset"
             ),
         })
         .to_string())

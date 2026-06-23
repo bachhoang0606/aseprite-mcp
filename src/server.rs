@@ -692,7 +692,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-003 Phase 3: Generate a full blob-47 autotile sheet from FOUR corner quarters you drew as a left-to-right strip [fill | outer | edge | inner] (each tile_size/2 square; outer=convex top-left, edge=boundary on top, inner=concave top-left notch). Composes all 47 tiles deterministically onto a new layer; then run live_pack_similar_tiles (grid_size=tile_size) to build the tileset. Draw ~4 quarters, get 47 tiles."
+        description = "SPEC-003 Phase 3: Generate an autotile sheet from FOUR corner quarters you drew as a left-to-right strip [fill | outer | edge | inner] (each tile_size/2 square; outer=convex top-left, edge=boundary on top, inner=concave top-left notch). layout='blob47' (default) composes all 47 corner+edge tiles; layout='wang16' composes 16 edge-only tiles (inner quarter unused). Drawn deterministically onto a new layer; then run live_pack_similar_tiles (grid_size=tile_size) to build the tileset. Draw ~4 quarters, get 16/47 tiles."
     )]
     async fn live_create_autotile_template(
         &self,

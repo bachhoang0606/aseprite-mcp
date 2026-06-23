@@ -60,18 +60,21 @@ New live tools, all routed through the bridge to new Lua handlers in the plugin:
   efficiency stats (`"40 cells -> 12 unique tiles"`) — usable as a wasted-near-
   duplicate lint.
 
-### Phase 3 — Autotile template generation — LANDED 2026-06-22
-- `live_create_autotile_template(tile_size, layout=blob47)` — **built**. The agent draws the
-  **4 corner quarters** as a left-to-right strip `[fill | outer | edge | inner]` (each
-  `tile_size/2` square, in a canonical orientation: `outer`=convex top-left, `edge`=boundary on
-  top, `inner`=concave top-left notch); the tool composes **all 47 blob tiles** deterministically
-  (the 4-corners-per-tile model) and draws them as a near-square sheet on a new layer. Then
-  `live_pack_similar_tiles(grid_size=tile_size)` turns the sheet into a tileset, whose tile order
-  matches `autotile::blob47_tile_index` by construction. Pure compositor in `src/autotile.rs`
-  (`CornerPieces`, `rotate90` lossless 90° turns, `quadrant_piece` lookup, `assemble_tile` /
-  `assemble_blob47`, `slice_corner_pieces`, `sheet_dims`) — **palette-legal by construction** (only
-  the source colours, like `live_rotate`), 13 unit tests. The live tool reads the render + draws via
-  the existing `draw_pixels` path (no new plugin command). `wang16` is a documented follow-up.
+### Phase 3 — Autotile template generation — LANDED 2026-06-22 (blob47 + wang16)
+- `live_create_autotile_template(tile_size, layout=blob47|wang16)` — **built (both layouts)**. The
+  agent draws the **4 corner quarters** as a left-to-right strip `[fill | outer | edge | inner]`
+  (each `tile_size/2` square, in a canonical orientation: `outer`=convex top-left, `edge`=boundary
+  on top, `inner`=concave top-left notch); the tool composes **all 47 blob tiles** (corners+edges)
+  or **16 wang tiles** (edge-only) deterministically (the 4-corners-per-tile model) and draws them
+  as a near-square sheet on a new layer. Then `live_pack_similar_tiles(grid_size=tile_size)` turns
+  the sheet into a tileset — blob47 tile order matches `autotile::blob47_tile_index`, wang16 order is
+  the 4-bit cardinal mask `N|E|S|W` (0..=15), both by construction. Pure compositor in
+  `src/autotile.rs` (`CornerPieces`, `rotate90` lossless 90° turns, `quadrant_piece` lookup,
+  `assemble_tile` / `assemble_blob47` / `assemble_wang16`, `slice_corner_pieces`, `sheet_dims`) —
+  **palette-legal by construction** (only the source colours, like `live_rotate`); wang16 reuses the
+  blob compositor with the corner bits forced on, so it never uses the `inner` quarter. 14 unit
+  tests. The live tool reads the render + draws via the existing `draw_pixels` path (no new plugin
+  command).
 - Shared **bitmask table** (pure Rust, unit-tested, no Aseprite): 8-neighbor mask
   with corner-masking (a diagonal counts only if both adjacent cardinals are filled)
   → the 47 canonical blob states (Red Blob Games convention — see Decisions).
@@ -129,8 +132,10 @@ the only remaining user check (this server cannot launch those editors).
       `live_create_autotile_template` composes all 47 tiles from 4 corner quarters via the pure
       `assemble_blob47` compositor (rotation/placement verified by marker tests; no-new-colour
       guarantee; `slice_corner_pieces` + `sheet_dims`), drawn live via `draw_pixels` and registered
-      (schema-contract covered). Live-verify on an Aseprite session is pending (reuses the proven
-      render + draw_pixels paths). `wang16` is a follow-up.
+      (schema-contract covered). **`wang16` landed (2026-06-22):** `layout="wang16"` composes the 16
+      edge-only tiles via `assemble_wang16` (reuses `assemble_tile` with the corner bits forced on,
+      so `inner` is never used — tested). Live-verify on an Aseprite session is pending (reuses the
+      proven render + draw_pixels paths).
 - [x] Phase 4: `seamless_check` flags a deliberately broken seam and passes a correct
       wrap tile / strip (`tools/seam_lint.py`, `tests/test_seam_lint.py`, CI).
 - [x] Phase 5: whole-canvas export to Tiled `.tsj` (blob47 wangset), Godot `.tres`,

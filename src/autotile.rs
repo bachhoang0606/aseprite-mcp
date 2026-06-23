@@ -203,6 +203,18 @@ pub fn assemble_blob47(pieces: &CornerPieces) -> Vec<RgbaImage> {
     blob47_masks().iter().map(|&m| assemble_tile(m, pieces)).collect()
 }
 
+/// All four corner bits set — used to compose the **edge-only** wang-16 set: with every diagonal
+/// "present", a quadrant whose two cardinal edges are both filled is always `fill` (never the
+/// concave `inner` corner), which is exactly the wang-16 rule (corners don't matter).
+const ALL_CORNERS: u8 = NE | SE | SW | NW;
+
+/// Assemble the **wang-16** edge-only set: 16 tiles indexed directly by the 4-bit cardinal edge
+/// mask `N|E|S|W` (0..=15). Reuses the blob-47 quadrant compositor with the corner bits forced on,
+/// so it needs only the `fill` / `outer` / `edge` quarters (the `inner` quarter is unused).
+pub fn assemble_wang16(pieces: &CornerPieces) -> Vec<RgbaImage> {
+    (0u8..=15).map(|m| assemble_tile(m | ALL_CORNERS, pieces)).collect()
+}
+
 /// Cut the four `q×q` source quarters from a left-to-right strip `[fill | outer | edge | inner]`
 /// at `(sx, sy)` in a rendered image. Returns `None` if the strip runs off the image.
 pub fn slice_corner_pieces(img: &RgbaImage, sx: u32, sy: u32, q: u32) -> Option<CornerPieces> {
@@ -344,6 +356,28 @@ mod tests {
         for px in tile.pixels() {
             assert_eq!(px.0, [0, 120, 0, 255]); // fill colour everywhere
         }
+    }
+
+    #[test]
+    fn wang16_is_16_edge_only_tiles_that_never_use_inner() {
+        let p = test_pieces(); // inner = solid [160,160,0,255]
+        let tiles = assemble_wang16(&p);
+        assert_eq!(tiles.len(), 16);
+        for (i, tile) in tiles.iter().enumerate() {
+            assert_eq!(tile.dimensions(), (4, 4), "tile {i}");
+            // wang-16 ignores corners → the concave `inner` quarter is never used.
+            for px in tile.pixels() {
+                assert_ne!(px.0, [160, 160, 0, 255], "wang16 tile {i} used the inner piece");
+            }
+        }
+        // The wang-16 rule: both adjacent edges present -> fill (NOT the concave inner corner).
+        let corners = NE | SE | SW | NW;
+        assert_eq!(quadrant_piece(Quadrant::Ne, (N | E) | corners).0, Piece::Fill);
+        // All four edges -> solid fill; index 0 (no edges) -> four outer corners.
+        for px in assemble_tile((N | E | S | W) | corners, &p).pixels() {
+            assert_eq!(px.0, [0, 120, 0, 255]);
+        }
+        assert_eq!(quadrant_piece(Quadrant::Nw, corners).0, Piece::Outer); // no edges -> outer
     }
 
     #[test]
