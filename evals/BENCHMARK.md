@@ -14,6 +14,7 @@ once **without** — and score both blind. Toggled as manual run-variants (no co
 |------|--------------|------|-----:|--------:|-------------------:|-----------------|
 | 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | 24×24 goblin (blind-judged) | overall **7.0** | overall **5.67** | **+1.33 overall · 3/3 blind judges · form/light +3.33** | 2026-06-22 · [runs/2026-06-22/](runs/2026-06-22/) |
 | 2 Constrained colour | `live_palette_snap` (CIELAB) | 12px mixed-palette bench (scoped) | **100% on-pal** | 25% on-pal | **+75pp** (9 violations → 0) | 2026-06-21 · [runs/2026-06-21/](runs/2026-06-21/) |
+| 4 Reference grounding | import a reference (`live_import_reference`) vs invent from scratch | 24×24 apple (blind-judged) | overall **7.33** | overall **3.33** | **+4.0 overall · 3/3 blind judges · form/light +5.0, proportions +3.67** | 2026-06-22 · [runs/2026-06-22/](runs/2026-06-22/) |
 
 A positive Δ = the path measurably improves the result on this server.
 
@@ -46,6 +47,22 @@ A positive Δ = the path measurably improves the result on this server.
 > the readability fix Run 2 showed. Evidence: [`runs/2026-06-22/`](runs/2026-06-22/)
 > (`cand_A.png` / `cand_B.png` + `path1b_perception.json`). Caveats: still N=1 case; the panel is 3
 > LLM judges (consistent but model-correlated).
+
+> **Run 4 (2026-06-22, Path 4 — reference grounding; also live-verifies `live_import_reference`).**
+> The research names "inventing organic shapes from text" as the agent's #1 hardest weakness, so the
+> see-step won't save a from-scratch organic draw — a reference will. Subject: a 24×24 apple.
+> **Without** (freehand from imagination): the apple came out a near-perfect circle with **flat
+> horizontal value banding** (hard light/mid/dark stripes) and an angular skirt. **With**: I generated
+> an organic 48×48 apple reference and `live_import_reference`'d it to 24×24 snapped to a 6-colour
+> palette (decode → content-aware dominant downscale → CIELAB snap → 231 px drawn, all on-palette —
+> the tool's first live E2E verification). The two clean renders were scored **blind by an independent
+> 3-judge panel**. Result: **3/3 preferred the reference version**, mean overall **3.33 → 7.33
+> (+4.0)** — the largest cross-path Δ so far — driven by **form/light +5.0** (banding → directional
+> round shading) and **proportions +3.67**. Unprompted, the judges named the freehand's "textbook
+> banding" and "near-perfect circle" vs the reference's "organic lobed silhouette… value steps follow
+> the curvature." Evidence: [`runs/2026-06-22/`](runs/2026-06-22/) (`apple_ref.png`, `cand_ref.png` /
+> `cand_noref.png` + `path4_reference.json`). Caveats: N=1, model-correlated judges; the registered
+> live binary predates regrid/auto_colors, so those Phase-2 import features stay unverified live.
 
 > **Run 1 (2026-06-21, Path 2).** On a locked 3-colour palette, 12 pixels were drawn (3
 > on-palette + 9 off-palette). Metric = off-palette violations (objective, no LLM judge).
