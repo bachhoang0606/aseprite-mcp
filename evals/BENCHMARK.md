@@ -134,15 +134,18 @@ consistent sign over ≥3 runs** — otherwise it stays out (the source's claim 
 ## C. Long-session degradation (donut test)
 Snapshot an objective quality vector (linter pass-rate, min silhouette-IoU, off-palette
 count) at context-fill checkpoints during a long task, then
-`python evals/judge.py --slope snapshots.json`. **Regression** = any checkpoint below its
-0%-baseline margin (linter −0.10, min IoU < 0.80, or off-palette > 0 from a 0 baseline).
+`python evals/judge.py --slope snapshots.json`. **Regression** = any checkpoint a margin below
+its 0%-baseline (linter −0.10, **min IoU −0.10**, or off-palette > 0 from a 0 baseline). All
+three are judged **relative to baseline** — this gate measures *decay*; the absolute 0.80 IoU
+quality bar lives in the Phase-1 silhouette-drift gate, not here (see the metric note below).
 
 | Date | Task | Checkpoints (linter / minIoU / offpal) | Slope | Regressed | Evidence |
 |------|------|----------------------------------------|------:|:---------:|----------|
-| 2026-06-23 | C1 — 8-frame goblin walk (realistic, ~1px body bob) | 1.0 / **0.73→0.66** / 0 (flat) | −0.008 | ⚠ flag¹ | [runs/2026-06-23/](runs/2026-06-23/) (`donut_c.json`) |
+| 2026-06-23 | C1 — 8-frame goblin walk (realistic, ~1px body bob) | 1.0 / **0.73→0.66** / 0 (flat) | −0.008 | ✅ no¹ | [runs/2026-06-23/](runs/2026-06-23/) (`donut_c.json`) |
 | 2026-06-23 | C2 — 8-frame goblin walk (body fixed, feet-only) | 1.0 / **0.97→0.90** / 0 | −0.009 | ✅ no | [runs/2026-06-23/](runs/2026-06-23/) (`donut_c.json`) |
 
-¹ Not session degradation — a **metric false-positive** (see note). **No-decay confirmed by C2.**
+¹ Under the original absolute-floor gate C1 flagged on IoU; the **baseline-relative refinement** (now
+implemented) correctly scores it `regressed: false` (the IoU is low but ~flat, not decaying).
 
 > **First §C run (2026-06-23) — no degradation; one metric insight.** The "long session" is an
 > executor agent generating an **8-frame 16×16 goblin walk-cycle** as op-plans in one long response
@@ -151,13 +154,16 @@ count) at context-fill checkpoints during a long task, then
 > 0 across all 8 frames** — zero context-rot in cleanliness or palette over the long generation — and
 > the composite slope was **flat** (−0.008 / −0.009). **C1** (the agent gave the goblin a ~1px body
 > bob) tripped the `regressed` flag, but *only* on silhouette-IoU, and *from frame 1* (baseline IoU
-> 0.733 < the 0.80 floor): that's constant animation bounciness on a tiny 16px sprite, **not** decay.
-> **C2** (body held fixed, feet-only motion) gives a baseline IoU of 0.971 that clears the floor, and
-> the donut gate then reports **no regression** (slope −0.009) — cleanly confirming **no quality decay
-> over the long generation.** **Metric finding:** the gate checks `min_iou` against an *absolute* floor
-> while the linter uses a *baseline-relative* margin, so a low-but-stable animation mis-flags;
-> recommended follow-up is to judge `min_iou` relative to its own baseline too (left out of this PR to
-> avoid changing tested eval logic). Evidence: [`runs/2026-06-23/`](runs/2026-06-23/) (`donut_c.json`,
+> 0.733): that's constant animation bounciness on a tiny 16px sprite, **not** decay. **C2** (body held
+> fixed, feet-only motion) gives a baseline IoU of 0.971 and reports **no regression** (slope −0.009) —
+> cleanly confirming **no quality decay over the long generation.** **Metric fix (now implemented):**
+> the donut gate originally checked `min_iou` against an *absolute* floor (0.80) while the linter used a
+> *baseline-relative* margin, so a low-but-stable animation mis-flagged. `compute_slope` now judges
+> `min_iou` relative to its own baseline (−0.10, parity with the linter margin) — consistent with the
+> function's own contract ("checked against the 0%-baseline") and this section's definition. Verified it
+> does **not** weaken detection: the decaying test fixture still flags, and the Phase-1 absolute drift
+> gate (`silhouette_iou_stable`) is untouched. Re-scored, C1 → `regressed: false`. Evidence:
+> [`runs/2026-06-23/`](runs/2026-06-23/) (`donut_c.json`,
 > `donut_strip_x16.png`, `donut2_strip_x16.png`, `donut{,2}_snapshots.json`). Caveats: single
 > long-generation proxy (output growth, not multi-turn input-context-rot), N=1 task per condition,
 > rasterized op-plans (not live hand-drawn).
