@@ -1,6 +1,9 @@
 # SPEC-007 — Objective eval harness as a hard gate (roadmap #9)
 
-- Status: **Draft (2026-06-21)** — design only; implementation is a follow-up.
+- Status: **Implemented (2026-06-24).** Tier-A gate (`evals/run.py`, CI-wired via `quality.yml`),
+  Tier-B harness (`evals/judge.py` + `tier_b.json`), silhouette-IoU drift, long-session degradation
+  slope, and persona A/B are all in place. The cross-path/persona/degradation **benchmarks have now
+  been run** and recorded in `evals/BENCHMARK.md` §A/§B/§C (see "Open question" note below).
 - Owner: project
 - Checklist items advanced: **9.4** (eval harness for skills/agents → 3), **9.3**
   (visual-regression strengthened), supports 9.1/9.2.
@@ -23,6 +26,11 @@ roadmap #9 names (**SwordsBench tasks, silhouette-IoU drift metric, long-session
 degradation, persona A/B**), and it does not yet answer the open question *"does our
 perception / constrained-colour stack actually move output on this server?"*. SPEC-007 adds
 those and makes the deterministic layer a **blocking CI gate**.
+
+> **Update 2026-06-24 — the open question now has data.** `evals/BENCHMARK.md` §A records blind-judged
+> cross-path runs on *this* stack: Perception **+1.33**, Constrained colour **+75pp**, Reference
+> grounding **+4.0**. §B ran the persona A/B (de-confounded) and **rejected** the "artistic agent"
+> line (sign inconsistent). §C ran the long-session degradation/donut test and found **no decay**.
 
 ## Inputs / Outputs
 - **Inputs:** rendered frame / sprite PNGs (golden fixtures under `evals/fixtures/`, or live

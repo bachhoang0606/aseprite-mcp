@@ -573,13 +573,13 @@ tradition.
 
 Honest gaps in this research, so a future effort knows where to dig:
 
-- **No live capability benchmark of *our* stack.** SwordsBench ran against a
-  simple batch MCP, not our live bridge + perception loop. We don't yet have
-  numbers for how much Path 1 (perception) actually moves model output on *this*
-  server. → Run the SwordsBench tasks through tier-B with/without each path and
-  record in `evals/RESULTS.md`.
-- **The "artistic agent" persona is unmeasured.** Adopt only behind an A/B in the
-  eval harness (the source never measured it).
+- ~~**No live capability benchmark of *our* stack.**~~ **Addressed 2026-06-24.**
+  `evals/BENCHMARK.md` §A now records blind-judged with/without runs on this stack:
+  Perception **+1.33**, Constrained colour **+75pp**, Reference grounding **+4.0**.
+  (Paths 3/5/6 remain unmeasured; §C added a long-session degradation run → no decay.)
+- ~~**The "artistic agent" persona is unmeasured.**~~ **Measured & REJECTED 2026-06-24.**
+  The A/B in `evals/judge.py` was run de-confounded over 3 runs (§B); the sign was
+  inconsistent (+0.43 / −0.33 / +0.10), so the persona line is **kept out of prompts**.
 - **Tuning constants are unpublished.** Anti-flicker `CHANGE_THRESHOLD` /
   `get_mode_color`, chroma-key thresholds, and regrid peak-spacing tolerances must
   be tuned against golden PNGs — start points are noted in §C but not validated
