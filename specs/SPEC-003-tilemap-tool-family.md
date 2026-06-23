@@ -134,8 +134,10 @@ the only remaining user check (this server cannot launch those editors).
       guarantee; `slice_corner_pieces` + `sheet_dims`), drawn live via `draw_pixels` and registered
       (schema-contract covered). **`wang16` landed (2026-06-22):** `layout="wang16"` composes the 16
       edge-only tiles via `assemble_wang16` (reuses `assemble_tile` with the corner bits forced on,
-      so `inner` is never used — tested). Live-verify on an Aseprite session is pending (reuses the
-      proven render + draw_pixels paths).
+      so `inner` is never used — tested). **Live-verified 2026-06-24**
+      (`evals/runs/2026-06-24/live_verify.json`): 4 quarters → `blob47` 47 tiles (7×7 sheet) and
+      `wang16` 16 tiles (4×4), both palette-legal; `live_pack_similar_tiles` packed the blob sheet
+      144 cells → **47 unique tiles** (all distinct).
 - [x] Phase 4: `seamless_check` flags a deliberately broken seam and passes a correct
       wrap tile / strip (`tools/seam_lint.py`, `tests/test_seam_lint.py`, CI).
 - [x] Phase 5: whole-canvas export to Tiled `.tsj` (blob47 wangset), Godot `.tres`,

@@ -5,6 +5,9 @@
   `live_extract_style_profile` (a faithful port of the derivation, returning the profile from
   the open sprite — Rust tests mirror the Python selftests so they can't diverge). Feeding the
   profile to rig-builder/animation-director as *automatic* hard constraints is a future polish.
+  **Live-verified 2026-06-24** (`evals/runs/2026-06-24/live_verify.json`): on a drawn sprite it
+  returned grid (native, scale 1), a hue-shifted ramp (lint 0.85), `light_dir`, `heads_tall`, and
+  `outline_policy` — the open document untouched.
 - Owner: project
 - Checklist items advanced: **9.4** (new objective eval axis — ramp-lint), 4.1 (palette/ramp
   discipline made machine-checkable), supports 2.x (future live tool).

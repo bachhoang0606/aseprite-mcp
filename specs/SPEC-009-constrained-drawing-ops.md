@@ -85,8 +85,10 @@ the most iconic + self-contained one, **`dither_fill_region`**.
       breaks ties deterministically by first-seen. `live_rotate` resolves a rect / selection / whole
       canvas, caps the source area (the ×8 buffer), centres or places the result, and draws onto a
       NEW layer; the schema-contract test covers the tool.
-- [x] No new dependency; `cargo test --bins` green (139 tests). (Live-verify of the draw is the
-      already-proven `draw_pixels` path.)
+- [x] No new dependency; `cargo test --bins` green (139 tests). **Live-verified 2026-06-24**
+      (`evals/runs/2026-06-24/live_verify.json`): `live_rotate` 33° → palette-legal (5 colours,
+      no AA fringe); `live_dither_fill` bayer4 → only the two ramp colours; `live_gradient_map`
+      → output within the ramp; composite had **0 off-palette pixels**.
 
 ## Eval (how we grade it)
 - **Deterministic (Rust, CI):** the `dither.rs` table above (the two endpoints + the 50% Bayer
