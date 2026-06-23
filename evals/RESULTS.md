@@ -30,14 +30,15 @@ by a 3-judge panel** — **3/3 preferred the perception version**, mean overall 
 mean overall **3.33→7.33 (+4.0)**, form/light +5.0 — and it **live-verified
 `live_import_reference`** end-to-end (`runs/2026-06-22/path4_reference.json`).
 
-**Persona A/B (BENCHMARK.md §B) Run 1 landed 2026-06-23** (`tb_swords_static`, 32×32
-swordsman, both variants drawn live, blind 3-judge panel): **3/3 preferred the
-persona variant**, mean overall **3.33 → 7.67 (+4.33 / +0.43 on the 0–1 scale)**,
-form/light +4.67 (`runs/2026-06-23/persona_ab1.json`). **Promising but heavily
-confounded** — one operator drew both, applying the doctrine to A vs a plain default B,
-so it largely re-shows the Path-1 outline+shading win under a persona label; the
-magnitude is an upper bound and the decision still needs ≥3 (ideally
-independent-executor) runs. The long-session degradation row remains pending.
+**Persona A/B (BENCHMARK.md §B) — COMPLETE (3 runs, 2026-06-23): ✗ REJECTED.** Run 1
+(`tb_swords_static`, both drawn live, blind 3-judge) gave +4.33 overall **but was
+confounded** (one operator drew both). The two **de-confounded** runs — independent cold
+agents, one prompted with the persona line and one not, designs rasterized 1:1 — flipped
+it: **Run 2 swordsman 3/3 preferred BASELINE (Δ −3.33)** (the persona agent orphaned the
+sword as a floating bar), **Run 3 archer 3/3 preferred PERSONA (Δ +1.0)**. Sign
+inconsistent (+0.43, −0.33, +0.10); de-confounded mean −0.12 → the persona line is **kept
+OUT** (`runs/2026-06-23/persona_ab_deconfound.json`; `judge.PERSONA_CANDIDATE` annotated).
+The long-session degradation row remains pending.
 
 ### Known gaps surfaced by this run (backlog)
 - ~~**5.4 export — JSON lacks `frameTags`.**~~ **FIXED 2026-06-10:**

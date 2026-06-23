@@ -38,9 +38,18 @@ TIER_B = os.path.join(ROOT, "evals", "tier_b.json")
 WEIGHT_EPS = 1e-6
 
 # SPEC-007 Phase 2 — the candidate "artistic agent" persona line under A/B test.
-# Wired into a skill/agent prompt ONLY if >=3 blind A/B runs show mean delta >= +0.05
-# (consistent sign) — per the research caveat that this is the source's *untested*
+# Adopt into a skill/agent prompt ONLY if >=3 blind A/B runs show mean delta >= +0.05
+# with consistent sign — per the research caveat that this is the source's *untested*
 # hypothesis, not a result.
+#
+# RESULT (2026-06-23): TESTED, **REJECTED — kept OUT.** 3 blind A/B runs
+# (evals/BENCHMARK.md §B, evals/runs/2026-06-23/): Δ(persona−baseline) on the 0–1 scale
+# = +0.43 (confounded, 1 operator drew both), −0.33 (de-confounded swordsman),
+# +0.10 (de-confounded archer). Sign is NOT consistent and the two de-confounded runs
+# average −0.12, so the rule rejects it. The de-confounded design (independent executor
+# agents, one prompted with the line below and one not) showed the generic persona does
+# not reliably help — and on the swordsman it hurt (the persona agent orphaned the sword).
+# Kept here only as the tested-and-rejected control; do NOT wire it into prompts.
 PERSONA_CANDIDATE = (
     "You are a meticulous pixel artist who prizes a readable silhouette and strict "
     "palette discipline: plan key poses before drawing, and keep body volume constant "

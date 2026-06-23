@@ -1,0 +1,52 @@
+{
+  "runs": [2, 3],
+  "section": "B. Persona A/B (de-confounded)",
+  "date": "2026-06-23",
+  "design": "DE-CONFOUNDED: independent cold executor agents each DESIGNED a sprite in isolation (one given the candidate persona line, one not), neither aware of the A/B test or the other agent. Each emitted a precise ordered draw-op plan (rect/line/pixel on the same locked 12-colour palette), which a deterministic rasterizer applied 1:1 with ZERO operator input. So the ONLY difference between variants is the persona STRING -- this is the proper Section-B test that Run 1 (single operator) could not provide.",
+  "env": "executors + judges = workflow subagents (general-purpose); sprites rasterized from op-plans (PIL, faithful); not hand-drawn.",
+  "palette_discipline": "All four designs rendered 100% on-palette (0 off-palette ops) -- palette discipline was NOT the differentiator; silhouette/'is the weapon actually held' was.",
+  "run2_swordsman": {
+    "case": "32x32 swordsman, blind 3-judge panel (labels: sprite1=persona, sprite2=plain; persona placed FIRST)",
+    "preference_votes": { "persona": 0, "plain": 3, "tie": 0 },
+    "mean_overall": { "persona": 4.0, "plain": 7.33 },
+    "mean_scores": {
+      "persona": { "silhouette": 3.33, "form_light": 4.0, "linework": 6.0, "proportions": 6.0, "overall": 4.0 },
+      "plain":   { "silhouette": 8.0,  "form_light": 7.0, "linework": 7.0, "proportions": 7.0, "overall": 7.33 }
+    },
+    "delta_persona_minus_baseline_overall": "-3.33 (4.0 - 7.33)",
+    "delta_on_0to1_scale": -0.333,
+    "why": "The persona agent drew a clean, volume-shaded BODY but left the sword as a DETACHED vertical bar floating beside the figure (hands at sides, holding nothing) -- all 3 judges called it a fatal silhouette failure for 'a humanoid holding a sword'. The plain agent had the figure actually grip a raised diagonal blade."
+  },
+  "run3_archer": {
+    "case": "32x32 archer, blind 3-judge panel (labels: sprite1=plain, sprite2=persona; persona placed SECOND)",
+    "preference_votes": { "persona": 3, "plain": 0, "tie": 0 },
+    "mean_overall": { "persona": 6.67, "plain": 5.67 },
+    "mean_scores": {
+      "plain":   { "silhouette": 4.67, "form_light": 6.0, "linework": 7.0, "proportions": 7.33, "overall": 5.67 },
+      "persona": { "silhouette": 7.0,  "form_light": 6.0, "linework": 6.0, "proportions": 6.0,  "overall": 6.67 }
+    },
+    "delta_persona_minus_baseline_overall": "+1.0 (6.67 - 5.67)",
+    "delta_on_0to1_scale": 0.10,
+    "why": "Here the persona agent drew a curved wooden bow WITH a visible string that the figure grips (plus a hood/quiver hint); the plain agent's 'bow' was an ambiguous straight grey column reading as a floating blade. Persona won the core silhouette read (+2.33 silhouette) but the plain agent had cleaner linework/proportions, so the margin was modest."
+  },
+  "three_run_summary": {
+    "delta_persona_minus_baseline_0to1": { "run1_confounded": 0.434, "run2_deconfounded": -0.333, "run3_deconfounded": 0.10 },
+    "mean_all_three": 0.067,
+    "mean_deconfounded_only": -0.117,
+    "sign_consistent": false
+  },
+  "decision": "REJECT -- do NOT adopt the candidate persona line. The harness rule adopts only if mean Delta >= +0.05 WITH CONSISTENT SIGN over >=3 runs; the sign is NOT consistent (+0.43, -0.33, +0.10), and the two DE-CONFOUNDED runs (the trustworthy ones) average NEGATIVE (-0.117). Run 1's large +0.43 is now explained as single-operator confound, not a persona effect.",
+  "interpretation": "When the persona is a real prompt to an independent agent (not me drawing both), it does NOT reliably improve output. The deciding factor in BOTH runs was a failure mode the persona line does not target -- whether the figure actually HOLDS the weapon vs a detached floating object. The persona's 'readable silhouette + constant body volume' framing made the persona swordsman agent over-invest in body volume and orphan the sword. Lesson: a generic 'be meticulous' persona is no substitute for task-specific drawing rules (the rules/ files + the live see-step), which is consistent with the research's framing that perception/structure beat vibes.",
+  "caveats": [
+    "Executors PLANNED BLIND (no live preview), so absolute quality is lower than the live see-step loop would give; both variants were equally blind, so the A/B comparison is fair, but this measures the persona's effect on BLIND planning, not on a perceive-and-fix loop.",
+    "N=2 de-confounded cases (swordsman, archer); 3 model-correlated LLM judges per run.",
+    "Sprites are rasterized op-plans, not live hand-drawn (that is the de-confound: the design is 100% the agent's, applied verbatim)."
+  ],
+  "evidence": [
+    "r2_plain_x16.png / r2_persona_x16.png (run-2 swordsman pair)",
+    "r3_plain_x16.png / r3_persona_x16.png (run-3 archer pair)",
+    "r2_plain.json / r2_persona.json / r3_plain.json / r3_persona.json (the agents' raw op-plans)",
+    "deconfound_design_plans.json (each agent's stated plan + op count)",
+    "_apply_ops.py (the faithful 1:1 rasterizer)"
+  ]
+}

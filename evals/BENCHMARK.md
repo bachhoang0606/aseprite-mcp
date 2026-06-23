@@ -81,11 +81,14 @@ consistent sign over ≥3 runs** — otherwise it stays out (the source's claim 
 
 | Run | Date | Case | A_score (persona) | B_score (baseline) | Δ (A − B) | Evidence |
 |----:|------|------|------------------:|-------------------:|----------:|----------|
-| 1 | 2026-06-23 | tb_swords_static (32×32 swordsman, blind 3-judge) | overall **7.67** (0.77) | overall **3.33** (0.33) | **+4.33 overall (+0.43) · 3/3 blind judges** | [runs/2026-06-23/](runs/2026-06-23/) |
-| 2 | — | — | — | — | — | _pending_ |
-| 3 | — | — | — | — | — | _pending_ |
+| Run | Method | Case | A (persona) | B (baseline) | Δ (A − B) | Pref | Evidence |
+|----:|--------|------|------------:|-------------:|----------:|------|----------|
+| 1 | **confounded** (1 operator drew both) | 32×32 swordsman | overall **7.67** | overall **3.33** | **+4.33 (+0.43)** | 3/3 persona | [runs/2026-06-23/](runs/2026-06-23/) (`persona_ab1.json`) |
+| 2 | **de-confounded** (independent agents) | 32×32 swordsman | overall **4.0** | overall **7.33** | **−3.33 (−0.33)** | **3/3 baseline** | [runs/2026-06-23/](runs/2026-06-23/) (`persona_ab_deconfound.json`) |
+| 3 | **de-confounded** (independent agents) | 32×32 archer | overall **6.67** | overall **5.67** | **+1.0 (+0.10)** | 3/3 persona | [runs/2026-06-23/](runs/2026-06-23/) (`persona_ab_deconfound.json`) |
 
-**Mean Δ (1 run):** +0.43 on the 0–1 case scale · **Decision:** _still pending — adopt iff mean Δ ≥ +0.05 with consistent sign over **≥3** runs; run 1 is promising but heavily confounded (see note)._
+**Δ across 3 runs (0–1 scale):** +0.43, **−0.33**, +0.10 → **sign NOT consistent**; mean of the two *de-confounded* runs = **−0.12**.
+**Decision: ✗ REJECT — the candidate persona line is NOT adopted.** The rule adopts only on a consistent-sign mean Δ ≥ +0.05 over ≥3 runs; the sign flips, and once de-confounded the effect is *negative on average*. Run 1's large +0.43 is explained as single-operator confound, not a persona effect.
 
 > **Run 1 (2026-06-23, Persona A/B).** Case `tb_swords_static` — a 32×32 swordsman, 3/4 view,
 > on a locked 12-colour palette, **both variants drawn live**. **Variant B (baseline, no persona):**
@@ -109,6 +112,24 @@ consistent sign over ≥3 runs** — otherwise it stays out (the source's claim 
 > second (practice/order effect). The magnitude is therefore an **upper bound**. The proper de-confounded
 > design — two *independent* executor agents, one given the persona line and one not, each drawing
 > blind, then judged blind — stays pending, as do runs 2–3 (the decision needs **≥3** runs).
+
+> **Runs 2–3 (2026-06-23, Persona A/B — the DE-CONFOUNDED runs that settle it).** To remove Run 1's
+> single-operator confound, two *independent* cold executor agents each **designed** a sprite in
+> isolation — one given the persona line, one not, neither aware of the A/B test or the other — and
+> emitted a precise draw-op plan that a **deterministic rasterizer applied 1:1** (zero operator input).
+> So the only difference between variants is the persona *string*. **Run 2 (swordsman): 3/3 judges
+> preferred the BASELINE** (persona overall 4.0 vs 7.33, **Δ −3.33**) — the persona agent over-invested
+> in body volume and left the sword a **detached bar floating beside the figure** ("a fatal silhouette
+> failure for 'a humanoid holding a sword'"), while the plain agent had the figure actually grip a
+> raised blade. **Run 3 (archer): 3/3 preferred the PERSONA** (6.67 vs 5.67, **Δ +1.0**) — here the
+> persona agent drew a curved bow with a visible gripped string vs the plain agent's ambiguous
+> floating column. All four designs were **100% on-palette** (palette wasn't the differentiator). Net:
+> the sign is **inconsistent** and the de-confounded mean is **negative**, so the persona line is
+> **rejected**. The decisive dimension in both runs — *does the figure actually hold the weapon* — is
+> a failure mode the generic "be meticulous / readable silhouette" persona doesn't target; task-specific
+> rules + the live see-step do. Evidence: [`runs/2026-06-23/`](runs/2026-06-23/) (`r2_*_x16.png`,
+> `r3_*_x16.png`, `r{2,3}_{plain,persona}.json`, `persona_ab_deconfound.json`). Caveats: executors
+> planned **blind** (no live preview — both equally), N=2 de-confounded cases, 3 model-correlated judges.
 
 ## C. Long-session degradation (donut test)
 Snapshot an objective quality vector (linter pass-rate, min silhouette-IoU, off-palette
