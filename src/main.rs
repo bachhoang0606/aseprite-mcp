@@ -13,6 +13,7 @@ mod filmstrip;
 mod gutter;
 mod live;
 mod marks;
+mod palette_extract;
 mod preview;
 mod prompts;
 mod reference;
