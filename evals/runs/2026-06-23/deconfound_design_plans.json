@@ -1,0 +1,18 @@
+{
+  "r2_plain": {
+    "n_ops": 77,
+    "plan": "A 32x32 3/4-view swordsman, centred and large. Light comes from upper-left so left/top faces use light tones, right/bottom use shadow. Build order: (1) ground shadow ellipse, (2) silhouette/outline pass in near-black for head, helmet, torso, arms, legs, sword, (3) fill body regions \u2014 skin face, green tunic, steel chestplate/pauldrons, brown belt and boots, steel sword blade with brown hilt, (4) add midtones and highlights for volume (skin, green, steel ramps), (5) facial detail and edge highlights. Head sits y2-9 around x13-19; torso y10-20; legs y21-29; the right arm extends up-right gripping a sword whose blade rises toward the top-right corner. Outlines are drawn first as solid blocks then overpainted by fills, leaving a 1px dark rim where fills stop short, which reads as clean pixel-art outlining."
+  },
+  "r2_persona": {
+    "n_ops": 32,
+    "plan": "Centred 32x32 3/4-view swordsman, light from upper-left. Near-black outline first, then skin/green tunic/brown trousers/boots fills, raised steel sword on viewer's left with brown hilt, plus highlight/shadow ramps. Strict 12-colour palette, constant volume, readable silhouette.</plan>\n</invoke>"
+  },
+  "r3_plain": {
+    "n_ops": 65,
+    "plan": "A 32x32 humanoid archer in 3/4 view, centered and large. Build order: dark silhouette/outline first, then fill skin (head/face), green tunic torso with light/mid/shadow, brown belt and boots, then the steel-tipped bow held vertically in the left hand with a drawn-back arrow, finishing with rim highlights and the darkest outline accents. Head occupies y3-9 (x12-18), torso y11-20, legs y21-29 splitting into two boots. The bow is a tall steel-grey curved limb on the figure's right side (canvas left, x6-9) with a string, and an arrow nocked drawn across the chest. Light comes from upper-left so left/top edges get light tones, lower-right gets shadow. Outline #1a1626 wraps the whole silhouette for readability at small size."
+  },
+  "r3_persona": {
+    "n_ops": 54,
+    "plan": "A 32x32 ranger-archer in 3/4 view, large and centred. The figure's body occupies x11-22; a tall curved wooden bow arcs down the left at x6-10 from y5 to y27 with a steel-light bowstring drawn taut. Build order: (1) bow limbs + string (back), (2) figure outline silhouette in near-black, (3) green hood and tunic fills with mid/shadow ramp for volume, (4) skin face and the two hands (one gripping the bow riser, one drawing the string at the chest), (5) brown legs/boots with brown-light highlight, (6) steel detailing on a quiver/arrow tips and re-stroke the bowstring on top so it reads in front of the arm. Light comes from upper-left, so left/top edges get the lighter ramp colour and right/bottom get shadow. Palette discipline: green ramp for cloth, skin ramp for flesh, brown for wood/legs, steel for string/metal, near-black for the unifying 1px outline that keeps the silhouette readable."
+  }
+}
