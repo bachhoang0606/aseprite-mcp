@@ -12,7 +12,7 @@ once **without** — and score both blind. Toggled as manual run-variants (no co
 
 | Path | Step toggled | Case | with | without | Δ (with − without) | Date / evidence |
 |------|--------------|------|-----:|--------:|-------------------:|-----------------|
-| 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | 16×16 sword (scoped) | outline present, reads at 100% | **no outline**, weak silhouette | **silhouette outline 0→39/39 boundary cells** (spatial defects 0→0) | 2026-06-22 · [runs/2026-06-22/](runs/2026-06-22/) |
+| 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | 24×24 goblin (blind-judged) | overall **7.0** | overall **5.67** | **+1.33 overall · 3/3 blind judges · form/light +3.33** | 2026-06-22 · [runs/2026-06-22/](runs/2026-06-22/) |
 | 2 Constrained colour | `live_palette_snap` (CIELAB) | 12px mixed-palette bench (scoped) | **100% on-pal** | 25% on-pal | **+75pp** (9 violations → 0) | 2026-06-21 · [runs/2026-06-21/](runs/2026-06-21/) |
 
 A positive Δ = the path measurably improves the result on this server.
@@ -31,6 +31,21 @@ A positive Δ = the path measurably improves the result on this server.
 > was uninformative because the blind draw was clean — perception's headline error-CATCHING value
 > (orphans / asymmetry / off-by-one) is better shown on a complex/freehand sprite or with an
 > independent judge, which stays the open Path-1 measurement.
+
+> **Run 3 (2026-06-22, Path 1 — the stronger run that closes Run 2's caveats).** A **24×24
+> front-facing goblin head** drawn live. **Without** the see-step (blind first pass): the right eye
+> landed a row lower than the left (a vertical asymmetry you make without visual feedback) and the
+> skin was flat. **With** the see-step: `live_save_preview` made both obvious; I aligned the eyes
+> and added a hue-shifted directional ramp (light forehead / shadow jaw+right). The two clean
+> renders were then scored **blind by an independent 3-judge panel** (scrambled labels, hypothesis
+> withheld). Result: **3/3 judges preferred the perception version**, mean overall **5.67 → 7.0
+> (+1.33)**, driven by **form/light +3.33** (flat → ramped) — and, unprompted, every judge named
+> exactly what the see-step fixed (the value/hue ramp + light direction, and "mismatched eyes" in
+> the blind version). Silhouette + linework tied (same base + outline, no orphans). So on a complex
+> sprite, perception's value is real, externally-scored, and **error-catching + polish**, not just
+> the readability fix Run 2 showed. Evidence: [`runs/2026-06-22/`](runs/2026-06-22/)
+> (`cand_A.png` / `cand_B.png` + `path1b_perception.json`). Caveats: still N=1 case; the panel is 3
+> LLM judges (consistent but model-correlated).
 
 > **Run 1 (2026-06-21, Path 2).** On a locked 3-colour palette, 12 pixels were drawn (3
 > on-palette + 9 off-palette). Metric = off-palette violations (objective, no LLM judge).

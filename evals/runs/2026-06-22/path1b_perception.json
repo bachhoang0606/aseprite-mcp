@@ -1,0 +1,27 @@
+{
+  "run": 3,
+  "date": "2026-06-22",
+  "path": "1 Perception",
+  "case": "24x24 front-facing goblin head (complex, symmetry-heavy; INDEPENDENT BLIND JUDGE PANEL)",
+  "step_toggled": "the live_save_preview see-step in the draw -> see -> fix loop",
+  "env": "live Aseprite 1.3.17.2 / plugin 0.3.2",
+  "method": "Drew a 24x24 goblin head as a blind first pass (no preview) = 'without' (cand_A). Then applied the perception loop on the same base: live_save_preview revealed (1) the right eye drawn a row LOWER than the left (vertical asymmetry) and (2) flat skin; fixed the eye alignment and added a hue-shifted directional ramp (light forehead / shadow jaw+right) = 'with' (cand_B). The two CLEAN renders were scored BLIND by an independent 3-judge panel (workflow subagents) on the rules/06 rubric, with scrambled labels and no knowledge of which used perception.",
+  "blind_judge_panel": {
+    "judges": 3,
+    "preference_votes": { "with_perception": 3, "without": 0, "tie": 0 },
+    "mean_scores": {
+      "without_candA": { "silhouette": 7.67, "symmetry": 6.67, "form_light": 3.0, "linework": 7.0, "overall": 5.67 },
+      "with_candB":    { "silhouette": 7.67, "symmetry": 7.0,  "form_light": 6.33, "linework": 7.0, "overall": 7.0 }
+    },
+    "delta_overall": "+1.33 (5.67 -> 7.0)",
+    "delta_form_light": "+3.33 (3.0 -> 6.33) -- the dominant gain: flat -> hue-shifted directional ramp"
+  },
+  "judge_observations_blind": "All 3 judges independently picked the perception version and, without being told the hypothesis, named exactly what the see-step fixed: the value/hue ramp + light direction (vs flat), and better-matched eyes (they flagged the without-version's eyes as mismatched). Silhouette + linework tied (same base shape + outline; no orphans either way).",
+  "verdict": "On a complex sprite the see-step measurably improved the result: 3/3 blind judges preferred it, mean overall +1.33, driven by form/light +3.33 and the eye-asymmetry fix. This is the error-catching + polish value the simple-sword run (Run 2) could not exercise.",
+  "caveats": [
+    "Still N=1 case (one sprite); the panel is 3 LLM judges (consistent, but model-correlated).",
+    "The perception variant is the blind base + fixes, so the delta isolates the see-step's value (not a different drawing).",
+    "The blind first pass deliberately reflects a no-feedback draw (a vertical eye slip + flat fill), which is what an agent without the see-step produces."
+  ],
+  "evidence": ["cand_A.png (without / blind)", "cand_B.png (with perception)", "path1b_without.png (blind, component overlay)", "path1b_with.png (perception, gutter)"]
+}
