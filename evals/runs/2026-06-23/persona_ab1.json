@@ -1,0 +1,33 @@
+{
+  "run": 1,
+  "section": "B. Persona A/B",
+  "date": "2026-06-23",
+  "case": "tb_swords_static (32x32 swordsman, 3/4 view, locked 12-colour palette) -- candidate artistic-agent persona line, INDEPENDENT BLIND JUDGE PANEL",
+  "persona_under_test": "You are a meticulous pixel artist who prizes a readable silhouette and strict palette discipline: plan key poses before drawing, and keep body volume constant across frames.",
+  "env": "live Aseprite 1.3.17.2 / plugin 0.3.2 (both variants drawn live via live_* tools; live_preflight ready:true)",
+  "method": "Variant B (baseline, NO persona): drew a sincere default 32x32 swordsman -- flat single-value fills, no outline, thin vertical sword, blocky stance. Variant A (WITH the persona line): drew the same brief on the same locked palette applying the persona doctrine -- planned a readable 3/4 silhouette, added a 1px dark outline, hue-shifted volume shading (upper-left light), a big diagonal blade with crossguard/grip/pommel, and separated shaded legs. Both rendered CLEAN at 16x (gutter:false) and scored BLIND by an independent 3-judge panel (neutral labels sprite1=baseline / sprite2=persona, persona placed SECOND to counter first-position bias, hypothesis withheld) on the rules/06 rubric.",
+  "palette_discipline": "Both variants verified 100% on-palette (0 off-palette colours, only the 12 locked colours). So the delta is driven by silhouette/form/proportion, NOT colour -- the persona's palette-discipline claim was already satisfied by both.",
+  "blind_judge_panel": {
+    "judges": 3,
+    "preference_votes": { "with_persona_A": 3, "baseline_B": 0, "tie": 0 },
+    "raw_overall": { "baseline_B": [4, 3, 3], "with_persona_A": [8, 7, 8] },
+    "mean_scores": {
+      "baseline_B":     { "silhouette": 4.33, "form_light": 2.0,  "linework": 3.67, "proportions": 3.67, "overall": 3.33 },
+      "with_persona_A": { "silhouette": 8.0,  "form_light": 6.67, "linework": 7.33, "proportions": 7.33, "overall": 7.67 }
+    },
+    "delta_overall": "+4.33 (3.33 -> 7.67)",
+    "delta_form_light": "+4.67 (2.0 -> 6.67)",
+    "delta_silhouette": "+3.67",
+    "delta_on_0to1_case_scale": "+0.43 (overall/10), well above the +0.05 adopt threshold -- but this is run 1 of the >=3 required"
+  },
+  "judge_observations_blind": "All 3 judges picked the persona variant and, unprompted, named exactly the persona doctrine's levers: 'clean intentional dark outline', 'a large diagonal multi-tone steel blade with a clear crossguard/pommel that an arm visibly grips', 'value ramps on blade and body', 'separated shaded legs' -- vs the baseline's 'flat single-fill blocks ... fused legs ... floating tab-arms ... a thin grey bar that barely reads as a held sword'.",
+  "verdict": "Run 1 of the persona A/B: applying the persona doctrine produced a markedly stronger sprite (3/3 blind, +4.33 overall, form/light +4.67). Promising and consistent-sign, but the harness rule requires >=3 runs before adopting the persona line.",
+  "caveats": [
+    "CONFOUND (the big one): a SINGLE operator drew BOTH variants and cannot un-know the persona, and deliberately applied the doctrine to A (outline + volume + bold blade) while drawing B as a plain default. So this measures 'persona doctrine fully applied vs a plain default', which overlaps heavily with the already-known Path-1 finding (outline + value ramp beat flat). It does NOT cleanly isolate whether prepending the persona STRING to an agent prompt causes better output. The magnitude is an upper bound.",
+    "Order effect: A was drawn second (more practice). Mitigated only by it being the same simple subject.",
+    "N=1 case; 3 LLM judges (consistent but model-correlated).",
+    "To de-confound, future runs should use INDEPENDENT executor agents -- one given the persona line, one not -- each drawing without seeing the other, then judged blind. That is the proper Section-B design and stays pending."
+  ],
+  "decision_status": "PENDING -- 1/3 runs complete; run-1 Delta = +0.43 on the 0-1 case scale (consistent sign). Adopt the persona line only after >=3 runs keep mean Delta >= +0.05.",
+  "evidence": ["persona_A.png (with persona)", "persona_B.png (baseline)", "persona_ab1_source.aseprite (both layers)"]
+}
