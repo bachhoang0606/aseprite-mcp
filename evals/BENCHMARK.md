@@ -12,10 +12,25 @@ once **without** — and score both blind. Toggled as manual run-variants (no co
 
 | Path | Step toggled | Case | with | without | Δ (with − without) | Date / evidence |
 |------|--------------|------|-----:|--------:|-------------------:|-----------------|
-| 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | `tb_swords_walk` | — | — | — | _pending first run_ |
+| 1 Perception | the `live_save_preview` see-step in the draw→see→fix loop | 16×16 sword (scoped) | outline present, reads at 100% | **no outline**, weak silhouette | **silhouette outline 0→39/39 boundary cells** (spatial defects 0→0) | 2026-06-22 · [runs/2026-06-22/](runs/2026-06-22/) |
 | 2 Constrained colour | `live_palette_snap` (CIELAB) | 12px mixed-palette bench (scoped) | **100% on-pal** | 25% on-pal | **+75pp** (9 violations → 0) | 2026-06-21 · [runs/2026-06-21/](runs/2026-06-21/) |
 
 A positive Δ = the path measurably improves the result on this server.
+
+> **Run 2 (2026-06-22, Path 1).** A 16×16 side-view sword drawn live (Aseprite 1.3.17.2 / plugin
+> 0.3.2). **Without** the see-step (blind, from a fixed coordinate plan): the result was objectively
+> clean — 1 connected component, 0 orphans, 0 off-palette (careful coordinate planning is itself a
+> form of verification) — BUT the silhouette had **no outline** (the cool-dark outline colour was
+> never placed), so it reads weakly at 100%. **With** the see-step: `live_save_preview` (16× upscale
+> + gutter + inline + components Set-of-Mark) made the missing outline obvious; adding a 1px
+> hue-shifted dark outline (rules/02) brought silhouette boundary coverage from 0/39 → 39/39 and the
+> sprite now reads clearly. So perception's *measured* contribution on this scoped case was a
+> **readability fix**, not error-correction. Evidence: [`runs/2026-06-22/`](runs/2026-06-22/)
+> (`path1_{without,with,with_clean}.png` + `path1_perception.json`). **Caveats (honest):** N=1,
+> single agent drew + assessed (no independent blind judge), and the objective spatial-defect metric
+> was uninformative because the blind draw was clean — perception's headline error-CATCHING value
+> (orphans / asymmetry / off-by-one) is better shown on a complex/freehand sprite or with an
+> independent judge, which stays the open Path-1 measurement.
 
 > **Run 1 (2026-06-21, Path 2).** On a locked 3-colour palette, 12 pixels were drawn (3
 > on-palette + 9 off-palette). Metric = off-palette violations (objective, no LLM judge).
