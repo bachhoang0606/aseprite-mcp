@@ -1,6 +1,11 @@
 # SPEC-012 — Import animation (free Path-3 hybrid-generation backend)
 
-- Status: **Draft (2026-06-24).**
+- Status: **Implemented + live-verified (2026-06-24).** `live_import_animation` ships; live-verified
+  on a real user-supplied Gemini-generated knight sprite-sheet (IDLE row, 4 frames) → 4 Aseprite
+  frames at 48×48, one shared 20-colour palette (no flicker), `idle` tag @ 6 fps, palette-legal
+  (`distinct_colors == 20`). Evidence: `evals/runs/2026-06-24/v_anim_idle.png` + `live_verify.json`.
+  **Field note:** `frequency` extraction degenerates to the near-black AA gradient on a SMOOTH
+  (non-pixel) source — use `median_cut`/`kmeans` for photos/AI renders (matches the param guidance).
 - Owner: project
 - Checklist items advanced: 2.x (new live-tool surface), 9.x (deterministic image tests).
 - Related ADRs: ADR-0005 (loud per-command degradation); reuses ADR-0004 preview render
@@ -80,7 +85,8 @@ regrid, auto_palette, tag, fps}`.
 - [ ] `live_import_animation` validates source mode (exactly one of sheet / frames), frame-count and
       size caps, draws N frames on one palette with durations + a tag, and returns the summary;
       mutually-exclusive `palette`/`auto_colors`/`snap:false` conflicts are loud (reused from SPEC-006).
-- [ ] No new dependency; `cargo test --bins` green; schema-contract test covers the new tool.
+- [x] No new dependency; `cargo test --bins` green (165 tests); schema-contract test covers the new
+      tool. **Live-verified 2026-06-24** (knight IDLE sheet → 4 frames, shared palette, tag).
 
 ## Eval
 - **Deterministic (Rust, CI):** the `slice_sheet` + `extract_from_images` tables.
