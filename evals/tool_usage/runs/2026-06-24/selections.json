@@ -1,0 +1,151 @@
+{
+  "full": {
+    "preview_cel": {
+      "params": {
+        "filename": "active_cel_preview.png",
+        "crop": "cel",
+        "gutter": true,
+        "inline": true
+      }
+    },
+    "preview_scale": {
+      "params": {
+        "filename": "preview.png",
+        "scale": 10,
+        "gutter": false
+      }
+    },
+    "preview_invert": {
+      "params": {
+        "source_x": 16,
+        "source_y": 8
+      }
+    },
+    "import_anim": {
+      "params": {
+        "filename": "walk.png",
+        "sheet": {
+          "cols": 4,
+          "rows": 1
+        },
+        "width": 32,
+        "height": 32,
+        "auto_colors": 8,
+        "palette_method": "frequency",
+        "fps": 8,
+        "tag": "run"
+      }
+    },
+    "import_ref_regrid": {
+      "params": {
+        "filename": "scaled_ref.png",
+        "width": 64,
+        "height": 64,
+        "regrid": true
+      }
+    },
+    "rotate_sel": {
+      "params": {
+        "angle": 30,
+        "selection_only": true,
+        "layer": "Spin"
+      }
+    },
+    "dither": {
+      "params": {
+        "rect": {
+          "x": 4,
+          "y": 4,
+          "width": 10,
+          "height": 8
+        },
+        "color_a": "#aa0000",
+        "color_b": "#ff8800",
+        "level": 0.3,
+        "matrix": "bayer2"
+      }
+    },
+    "autotile_wang": {
+      "params": {
+        "tile_size": 8,
+        "layout": "wang16",
+        "source_x": 0,
+        "source_y": 0
+      }
+    }
+  },
+  "trimmed": {
+    "preview_cel": {
+      "params": {
+        "filename": "active-cel-preview.png",
+        "crop": "cel",
+        "gutter": true,
+        "inline": true
+      }
+    },
+    "preview_scale": {
+      "params": {
+        "filename": "preview.png",
+        "scale": 10,
+        "gutter": false,
+        "crop": "sprite"
+      }
+    },
+    "preview_invert": {
+      "params": {
+        "source_x": 16,
+        "source_y": 8
+      }
+    },
+    "import_anim": {
+      "params": {
+        "filename": "walk.png",
+        "sheet": {
+          "cols": 4,
+          "rows": 1
+        },
+        "width": 32,
+        "height": 32,
+        "auto_colors": 8,
+        "palette_method": "frequency",
+        "fps": 8,
+        "tag": "run"
+      }
+    },
+    "import_ref_regrid": {
+      "params": {
+        "filename": "scaled_ref.png",
+        "width": 64,
+        "height": 64,
+        "regrid": true
+      }
+    },
+    "rotate_sel": {
+      "params": {
+        "angle": 30,
+        "selection_only": true,
+        "layer": "Spin"
+      }
+    },
+    "dither": {
+      "params": {
+        "rect": {
+          "x": 4,
+          "y": 4,
+          "width": 10,
+          "height": 8
+        },
+        "color_a": "#aa0000",
+        "color_b": "#ff8800",
+        "level": 0.3,
+        "matrix": "bayer2"
+      }
+    },
+    "autotile_wang": {
+      "params": {
+        "tile_size": 8,
+        "layout": "wang16"
+      }
+    }
+  }
+}
