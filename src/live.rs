@@ -173,6 +173,60 @@ pub struct LiveImportReferenceParams {
     pub at_y: Option<i32>,
 }
 
+/// Grid layout of a sprite-sheet for `live_import_animation` (frames row-major: left→right,
+/// then top→bottom).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveSheetGrid {
+    /// Number of frame columns.
+    pub cols: u32,
+    /// Number of frame rows.
+    pub rows: u32,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LiveImportAnimationParams {
+    /// A sprite-sheet **PNG** whose frames are laid out in the `sheet` grid. Provide EITHER
+    /// `filename`+`sheet` OR `frames` — not both, not neither.
+    pub filename: Option<String>,
+    /// Grid layout of `filename` (`{cols, rows}`) — required when `filename` is given.
+    pub sheet: Option<LiveSheetGrid>,
+    /// An ordered list of **PNG** frame paths (one per animation frame, all the same size).
+    /// Alternative to `filename`+`sheet`.
+    pub frames: Option<Vec<String>>,
+    /// Target grid width per frame. Omit to use the active sprite's width (or the detected
+    /// native when `regrid` honours a real upscale).
+    pub width: Option<u32>,
+    /// Target grid height per frame. Omit to use the active sprite's height.
+    pub height: Option<u32>,
+    /// Downscale method: "dominant" (per-cell majority, default) or "average".
+    pub method: Option<String>,
+    /// One shared explicit palette (`#rrggbb` list) for ALL frames. Omit → the active palette.
+    pub palette: Option<Vec<String>>,
+    /// Set `false` to skip palette snapping and keep the downscaled source colours.
+    pub snap: Option<bool>,
+    /// Auto-extract ONE N-colour palette from ALL frames combined and snap every frame to it —
+    /// so the animation doesn't colour-flicker. 1..=256; mutually exclusive with `palette` and
+    /// `snap:false`. Returned as `auto_palette` so you can lock it on the sprite.
+    pub auto_colors: Option<u32>,
+    /// Extraction method for `auto_colors`: "median_cut" (default), "kmeans", or "frequency"
+    /// (prefer `frequency` for already-limited-palette / integer-upscaled frames).
+    pub palette_method: Option<String>,
+    /// De-fake *scaled* frames: detect the native pixel grid on the FIRST frame and recover all
+    /// frames to 1× before snapping (one consistent grid). Defaults `false`.
+    pub regrid: Option<bool>,
+    /// Target layer for the animation. Defaults to "Reference Anim".
+    pub layer: Option<String>,
+    /// 1-based frame to start the animation on. Defaults to 1.
+    pub start_frame: Option<u32>,
+    /// Animation tag name spanning the imported frames. Defaults to "ref"; pass "" for no tag.
+    pub tag: Option<String>,
+    /// Playback rate — per-frame duration is `1/fps` seconds. Defaults to 12.
+    pub fps: Option<f64>,
+    /// Top-left placement of each frame on the canvas (default 0,0).
+    pub at_x: Option<i32>,
+    pub at_y: Option<i32>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LiveUseToolParams {
     /// Tool name: pencil, line, rectangle, filled_rectangle, ellipse, filled_ellipse, paint_bucket, or eraser.
@@ -2045,6 +2099,242 @@ impl LiveBridge {
             ));
         }
         Ok(palette)
+    }
+
+    /// SPEC-012 — free Path-3 backend: ingest a user-supplied generated animation (a sprite-sheet
+    /// PNG or a list of PNG frames) and lay it down as a palette-locked Aseprite animation on ONE
+    /// consistent palette (no per-frame flicker). Reuses the SPEC-006 per-frame import core; the
+    /// only new live orchestration is frame creation + tagging.
+    pub async fn import_animation(
+        &self,
+        params: LiveImportAnimationParams,
+    ) -> Result<String, String> {
+        let method = crate::reference::Method::parse(params.method.as_deref().unwrap_or("dominant"))
+            .map_err(|e| live_error("invalid_method", &e, None))?;
+
+        // ---- 1. Load source frames (exactly one of sheet-mode / list-mode), each PNG-only ----
+        let src_cap = crate::reference::MAX_SOURCE_EDGE;
+        let decode = |path: &str| -> Result<image::RgbaImage, String> {
+            let derr = |e: &dyn std::fmt::Display| {
+                live_error(
+                    "reference_decode_failed",
+                    &format!("failed to read PNG '{path}': {e} (convert other formats to PNG first)"),
+                    None,
+                )
+            };
+            let dims = image::ImageReader::open(path)
+                .map_err(|e| derr(&e))?
+                .into_dimensions()
+                .map_err(|e| derr(&e))?;
+            if dims.0 > src_cap || dims.1 > src_cap {
+                return Err(live_error(
+                    "reference_too_large",
+                    &format!("frame '{path}' {}x{} exceeds the {src_cap}px decode cap — downscale it first", dims.0, dims.1),
+                    None,
+                ));
+            }
+            Ok(image::open(path).map_err(|e| derr(&e))?.to_rgba8())
+        };
+
+        let (source_mode, frames): (&str, Vec<image::RgbaImage>) =
+            match (&params.filename, &params.sheet, &params.frames) {
+                (Some(file), Some(grid), None) => {
+                    validate_non_empty("filename", file)?;
+                    let sheet = decode(file)?;
+                    let frames = crate::reference::slice_sheet(&sheet, grid.cols, grid.rows)
+                        .map_err(|e| live_error("invalid_sheet", &e, None))?;
+                    ("sheet", frames)
+                }
+                (None, None, Some(list)) => {
+                    if list.is_empty() {
+                        return Err(live_error("no_frames", "`frames` is empty — provide ≥1 PNG path", None));
+                    }
+                    let mut imgs = Vec::with_capacity(list.len());
+                    for p in list {
+                        validate_non_empty("frames[]", p)?;
+                        imgs.push(decode(p)?);
+                    }
+                    let (w0, h0) = (imgs[0].width(), imgs[0].height());
+                    if let Some(bad) = imgs.iter().position(|f| (f.width(), f.height()) != (w0, h0)) {
+                        return Err(live_error(
+                            "frame_size_mismatch",
+                            &format!("frame {bad} is {}x{}, but frame 0 is {w0}x{h0} — all frames must be the same size", imgs[bad].width(), imgs[bad].height()),
+                            None,
+                        ));
+                    }
+                    ("frames", imgs)
+                }
+                _ => {
+                    return Err(live_error(
+                        "invalid_source",
+                        "provide EITHER `filename`+`sheet` OR `frames` (not both, not neither)",
+                        None,
+                    ));
+                }
+            };
+
+        let n = frames.len() as u32;
+        if n > crate::reference::MAX_ANIM_FRAMES {
+            return Err(live_error(
+                "too_many_frames",
+                &format!("{n} frames exceeds the {}-frame cap", crate::reference::MAX_ANIM_FRAMES),
+                None,
+            ));
+        }
+        if frames.iter().any(|f| f.width() == 0 || f.height() == 0) {
+            return Err(live_error("invalid_reference", "a frame has a zero dimension", None));
+        }
+
+        // ---- 2. Regrid once (frame 0), apply the same native to every frame ----
+        let regrid = params.regrid.unwrap_or(false);
+        let detected = if regrid { Some(crate::style_profile::detect_grid(&frames[0])) } else { None };
+        let honored = detected
+            .as_ref()
+            .is_some_and(|g| crate::reference::is_real_upscale(g.scale, g.native[0], g.native[1]));
+        let native: Option<(u32, u32)> =
+            if honored { detected.as_ref().map(|g| (g.native[0], g.native[1])) } else { None };
+
+        // ---- 3. Target dims (explicit → honoured native → active sprite) ----
+        let need_sprite = (params.width.is_none() || params.height.is_none()) && native.is_none();
+        let sprite_dims = if need_sprite {
+            let info: Value =
+                serde_json::from_str(&self.get_sprite_info().await?).unwrap_or(Value::Null);
+            (
+                info.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                info.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            )
+        } else {
+            (0, 0)
+        };
+        if let Some((nw, nh)) = native {
+            let tcap = crate::reference::MAX_TARGET_EDGE;
+            if (params.width.is_none() || params.height.is_none()) && (nw > tcap || nh > tcap) {
+                return Err(live_error(
+                    "native_exceeds_cap",
+                    &format!("regrid detected a native {nw}x{nh} larger than the {tcap}px cap — pass an explicit width/height ≤{tcap}"),
+                    None,
+                ));
+            }
+        }
+        let (tw, th) = resolve_import_target((params.width, params.height), native, sprite_dims);
+        validate_target_dims(tw, th)?;
+
+        // ---- 4. ONE shared palette across all frames (the consistency guarantee) ----
+        let snap = params.snap.unwrap_or(true);
+        if !snap && params.auto_colors.is_some() {
+            return Err(live_error(
+                "snap_conflict",
+                "auto_colors extracts a palette to snap to, but snap is false — drop one",
+                None,
+            ));
+        }
+        let mut auto_palette: Option<Vec<Rgba>> = None;
+        let palette: Option<Vec<Rgba>> = if !snap {
+            None
+        } else if let Some(num) = params.auto_colors {
+            if params.palette.is_some() {
+                return Err(live_error("palette_conflict", "pass either `palette` or `auto_colors`, not both", None));
+            }
+            let num = validate_auto_colors(num)?;
+            let pm = crate::palette_extract::Method::parse(
+                params.palette_method.as_deref().unwrap_or("median_cut"),
+            )
+            .map_err(|e| live_error("invalid_palette_method", &e, None))?;
+            let refs: Vec<&image::RgbaImage> = frames.iter().collect();
+            let pal = crate::palette_extract::extract_from_images(&refs, pm, num);
+            if pal.is_empty() {
+                return Err(live_error("empty_auto_palette", "could not extract a palette — every frame is fully transparent", None));
+            }
+            auto_palette = Some(pal.clone());
+            Some(pal)
+        } else if let Some(hexes) = &params.palette {
+            Some(parse_hex_palette(hexes)?)
+        } else {
+            Some(self.fetch_active_palette().await?)
+        };
+
+        // ---- 5. Ensure frames + lay each down on the shared palette ----
+        let start = params.start_frame.unwrap_or(1).max(1);
+        let fps = params.fps.unwrap_or(12.0);
+        if fps <= 0.0 {
+            return Err(live_error("invalid_fps", "fps must be > 0", None));
+        }
+        let duration = 1.0 / fps;
+        let last = start + n - 1;
+        self.ensure_frames(LiveEnsureFramesParams { count: last, duration: Some(duration) }).await?;
+
+        let layer = params.layer.unwrap_or_else(|| "Reference Anim".to_string());
+        let (ax, ay) = (params.at_x.unwrap_or(0), params.at_y.unwrap_or(0));
+        let mut total_pixels = 0usize;
+        let mut drawn_frames = 0u32;
+        let mut max_distinct = 0usize;
+        for (i, frame) in frames.iter().enumerate() {
+            let grid = match native {
+                Some(nat) => crate::reference::regrid_then_fit(frame, nat, (tw, th), palette.as_deref(), method),
+                None => crate::reference::downscale_to_grid(frame, tw, th, palette.as_deref(), method),
+            };
+            let target_frame = start + i as u32;
+            let pixels = grid_to_pixels(&grid, ax, ay);
+            if !pixels.is_empty() {
+                total_pixels += pixels.len();
+                max_distinct = max_distinct.max(crate::reference::distinct_colors(&grid));
+                drawn_frames += 1;
+                self.draw_pixels(LiveDrawPixelsParams {
+                    pixels,
+                    layer: Some(layer.clone()),
+                    frame: Some(target_frame),
+                })
+                .await?;
+            }
+            // ensure_frames only sets the duration on frames it CREATES; pin it on the whole range.
+            self.set_frame_properties(LiveSetFramePropertiesParams { frame: target_frame, duration: Some(duration) }).await?;
+        }
+
+        // ---- 6. Tag the range (best-effort: a duplicate tag name shouldn't fail the import) ----
+        let tag_name = params.tag.unwrap_or_else(|| "ref".to_string());
+        let tag = if tag_name.is_empty() {
+            None
+        } else {
+            self.new_tag(LiveNewTagParams {
+                name: tag_name.clone(),
+                from_frame: start,
+                to_frame: Some(last),
+                repeats: None,
+                data: None,
+                color: None,
+            })
+            .await
+            .ok();
+            Some(tag_name)
+        };
+
+        Ok(json!({
+            "changed": true,
+            "layer": layer,
+            "source_mode": source_mode,
+            "frames": n,
+            "frames_drawn": drawn_frames,
+            "start_frame": start,
+            "per_frame": { "width": tw, "height": th },
+            "fps": fps,
+            "method": if method == crate::reference::Method::Average { "average" } else { "dominant" },
+            "palette_size": palette.as_ref().map(|p| p.len()),
+            "pixels_drawn": total_pixels,
+            "distinct_colors": max_distinct,
+            "tag": tag,
+            "regrid": detected.as_ref().map(|g| json!({
+                "detected_scale": g.scale,
+                "native": { "width": g.native[0], "height": g.native[1] },
+                "applied": honored,
+            })),
+            "auto_palette": auto_palette.as_ref().map(|p| json!({
+                "method": params.palette_method.as_deref().unwrap_or("median_cut"),
+                "requested": params.auto_colors,
+                "count": p.len(),
+                "colors": p.iter().map(|c| c.to_hex()).collect::<Vec<_>>(),
+            })),
+        })
+        .to_string())
     }
 
     pub async fn use_tool(&self, params: LiveUseToolParams) -> Result<String, String> {
@@ -4580,6 +4870,8 @@ mod tests {
             LiveDrawPixelsParams,
             LivePixel,
             LiveImportReferenceParams,
+            LiveImportAnimationParams,
+            LiveSheetGrid,
             LiveUseToolParams,
             LivePoint,
             LiveEmptyParams,

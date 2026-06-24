@@ -553,6 +553,26 @@ impl AsepriteServer {
     }
 
     #[tool(
+        description = "SPEC-012 (free Path-3 hybrid generation): import a user-supplied generated ANIMATION \
+            as a palette-locked Aseprite animation — the offline route to organic motion. Provide EITHER a \
+            sprite-sheet `filename` (PNG) + `sheet` {cols, rows} (sliced row-major into equal frames) OR a \
+            `frames` list of PNG paths (one per frame, all same size). Each frame is content-aware downscaled \
+            to the target grid (`width`/`height`, default the sprite size) and snapped to ONE shared palette \
+            across all frames (`palette`, or `auto_colors:N` extracted from all frames combined, or the active \
+            palette) so the animation doesn't colour-flicker; `regrid:true` de-fakes scaled frames (detected on \
+            frame 0, applied to all). Lays the frames on `layer` (default \"Reference Anim\") from `start_frame`, \
+            sets per-frame duration from `fps` (default 12), and tags the range (`tag`, default \"ref\"). PNG only; \
+            ≤64 frames. Returns frames/per-frame size/palette/tag/regrid/auto_palette. The agent then traces/cleans \
+            the organic motion instead of inventing it."
+    )]
+    async fn live_import_animation(
+        &self,
+        params: Parameters<crate::live::LiveImportAnimationParams>,
+    ) -> Result<String, String> {
+        self.live.import_animation(params.0).await
+    }
+
+    #[tool(
         description = "Use an Aseprite drawing tool in the active sprite via the live plugin. Defaults to the AI Draft layer and active frame."
     )]
     async fn live_use_tool(

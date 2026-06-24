@@ -184,6 +184,26 @@ pub fn extract_from_image(img: &RgbaImage, method: Method, n: usize) -> Vec<Rgba
     extract(&samples, method, n)
 }
 
+/// Extract ONE palette from many frames' opaque pixels combined (SPEC-012) — so an animation
+/// snaps every frame to the same colours instead of flickering. Collects opaque samples across
+/// all frames, stride-caps the union at `MAX_SAMPLES` (deterministic), and extracts. Empty when
+/// every frame is fully transparent.
+pub fn extract_from_images(imgs: &[&RgbaImage], method: Method, n: usize) -> Vec<Rgba> {
+    let opaque: Vec<Rgba> = imgs
+        .iter()
+        .flat_map(|img| img.pixels())
+        .filter(|p| p.0[3] != 0)
+        .map(|p| Rgba::rgb(p.0[0], p.0[1], p.0[2]))
+        .collect();
+    let samples: Vec<Rgba> = if opaque.len() > MAX_SAMPLES {
+        let stride = opaque.len().div_ceil(MAX_SAMPLES);
+        opaque.iter().step_by(stride).copied().collect()
+    } else {
+        opaque
+    };
+    extract(&samples, method, n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,6 +217,20 @@ mod tests {
     fn method_parse_rejects_unknown() {
         assert_eq!(Method::parse("kmeans").unwrap(), Method::Kmeans);
         assert!(Method::parse("octree").is_err());
+    }
+
+    #[test]
+    fn extract_from_images_covers_colours_from_every_frame() {
+        // Two solid frames with DISJOINT colours; the shared palette must contain both
+        // (the cross-frame consistency guarantee for SPEC-012).
+        let frame_a = RgbaImage::from_pixel(2, 2, ImgRgba([255, 0, 0, 255])); // red
+        let frame_b = RgbaImage::from_pixel(2, 2, ImgRgba([0, 0, 255, 255])); // blue
+        let pal = extract_from_images(&[&frame_a, &frame_b], Method::Frequency, 4);
+        assert!(pal.contains(&Rgba::rgb(255, 0, 0)), "red missing: {pal:?}");
+        assert!(pal.contains(&Rgba::rgb(0, 0, 255)), "blue missing: {pal:?}");
+        // Fully-transparent frames yield an empty palette.
+        let clear = RgbaImage::from_pixel(2, 2, ImgRgba([0, 0, 0, 0]));
+        assert!(extract_from_images(&[&clear], Method::Frequency, 4).is_empty());
     }
 
     #[test]
