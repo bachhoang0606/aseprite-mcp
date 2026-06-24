@@ -14,6 +14,9 @@ pillar **5. Skills**.
 | [`/pixel-export`](pixel-export/SKILL.md) | Export PNG/GIF/spritesheet (+ JSON meta) | `06` (output) |
 | [`/pixel-review`](pixel-review/SKILL.md) | Critique a sprite against the rulebook, scored | `06` (all) |
 | [`/pixel-reference-motion`](pixel-reference-motion/SKILL.md) | Rotoscope a video/GIF/frame sequence into a clean animation (trace over a per-frame reference) | `01`, `04` |
+| [`/pixel-asset`](pixel-asset/SKILL.md) | Search a free/CC0 asset or palette (Lospec / HF) → preview → import, with provenance (SPEC-011) | `01`, `06` |
+| [`/pixel-generate`](pixel-generate/SKILL.md) | OPT-IN escape-hatch for organic-from-scratch subjects: gate (usually draw directly) → cheapest available generator → discipline pipeline (SPEC-013) | `01`, `06` |
+| [`/pixel-doctor`](pixel-doctor/SKILL.md) | Diagnose the live-bridge / SAC / config infra when `live_*` won't connect | — |
 
 ## Non-negotiable for every skill
 1. **Preflight first.** Call `live_preflight`; proceed only when `ready: true`.

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+- **SPEC-013 — `/pixel-generate` skill (optional hybrid-generation orchestration; research Path 3).**
+  The *free, no-backend* realization of Path 3: we never build or host an image model — the skill
+  **orchestrates whatever generator is already available and adds the pixel discipline**. It opens with
+  a **decision-gate that routes most tasks to direct drawing** (simple/geometric/icon, edit, animation,
+  tilemap, or hand-drawn → `/pixel-new`, generate nothing); only an **organic-from-scratch** subject
+  takes the generation path. When warranted, a **cheapest-available source ladder** — the agent's own
+  native image tool (e.g. Codex/Cursor; empty on Claude Code) → a user-supplied reference/video → an
+  **opt-in** generator MCP (PixelLab/fal/Replicate, behind a cost gate) → local ComfyUI — then **always**
+  the discipline pipeline (`live_import_reference`/`live_import_animation` + regrid/snap/lint/rig +
+  `/pixel-review`). **No new dependency, no API client in the server, no new plugin command** — docs-only
+  orchestration of existing tools (like `/pixel-asset`). Skill listed in `skills/README.md`.
+
 ### Changed
 - **Trimmed 6 oversized tool descriptions** (`live_save_preview` 2.3k→0.9k chars, plus
   `import_reference`/`import_animation`/`rotate`/`dither_fill`/`create_autotile_template`) — lowers
