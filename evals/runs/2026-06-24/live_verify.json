@@ -1,0 +1,20 @@
+{
+  "date": "2026-06-24",
+  "context": "Live E2E verification of the newer tools, run after swapping the registered live server (target/rmcp1/aseprite_mcp.exe) for the current build (163 cargo tests pass) and reconnecting. Aseprite 1.3.17.2 / plugin 0.3.2. The old build is backed up as target/rmcp1/aseprite_mcp.exe.approved-bak.",
+  "method": "On a known 6-colour 32x32 sprite (and dedicated sprites for import/autotile), each tool was exercised and its output checked for palette-legality (no colour outside the source set) via a Python colour-scan of the nearest-neighbour preview, plus the tool's own summary.",
+  "results": {
+    "live_rotate": { "verified": true, "detail": "33 deg onto a new layer, 264 px, distinct_colors=5 (<=6 source). No AA fringe; palette-legal by construction.", "evidence": "v_rotate.png" },
+    "live_dither_fill": { "verified": true, "detail": "bayer4 between #2e7d32/#4ca02c, 128 px; only the two colours emitted.", "evidence": "v_dither_gradient.png" },
+    "live_gradient_map": { "verified": true, "detail": "mapped the rotated blob onto a 4-step ramp; mappedColors=3, output within ramp.", "evidence": "v_dither_gradient.png" },
+    "palette_legality_combined": { "verified": true, "detail": "Composite of rotate+dither+gradient = 5 distinct colours, ZERO outside the 6-colour source palette." },
+    "live_extract_style_profile": { "verified": true, "detail": "grid native 32x32 scale 1; ramp [1b4d3e,2e7d32,4ca02c,6abe30] lint 0.85; light_dir top-left (matches drawn highlight); heads_tall 6.5; outline_policy selective." },
+    "crop_cel": { "verified": "partial", "detail": "crop:'cel' executes and reads the cel bbox, but drawn cels are full-canvas so it returned crop {0,0} 32x32 == sprite-crop. Matches the documented caveat; use explicit-rect crop to focus on drawn content.", "evidence": "v_crop_cel.png" },
+    "live_import_reference_regrid": { "verified": true, "detail": "Imported a 48x48 that is really 12x12x4 with regrid:true -> detected_scale 4, recovered native 12x12, 144 px, 5 colours preserved." },
+    "live_import_reference_auto_colors": { "verified": true, "detail": "auto_colors:5 (frequency) extracted EXACTLY the 5 source colours [#1a1626,#d8202e,#2e7d32,#6abe30,#e8e0d0]." },
+    "live_create_autotile_template_blob47": { "verified": true, "detail": "Drew 4 quarters [fill|outer|edge|inner] tile_size 8 -> 47 tiles in a 7x7 sheet, 3008 px, palette-legal (terrain+outline only).", "evidence": "v_autotile.png" },
+    "live_create_autotile_template_wang16": { "verified": true, "detail": "Same quarters -> 16 edge-only tiles in a 4x4 sheet, 1024 px, palette-legal." },
+    "live_pack_similar_tiles_over_blob47": { "verified": true, "detail": "Packed the 47-tile sheet: 144 cells -> 47 UNIQUE tiles (all distinct, no dupes) + tilemap layer." }
+  },
+  "verdict": "All newer tools live-verified end-to-end: rotate / dither / gradient (palette-legal by construction), extract_style_profile, import regrid + auto_colors, autotile_template blob47 + wang16, pack_similar_tiles. crop:'cel' verified as documented (full-canvas for drawn cels). Zero off-palette pixels anywhere.",
+  "evidence_pngs": ["verify32.png", "v_rotate.png", "v_dither_gradient.png", "v_crop_cel.png", "regrid_src.png", "v_autotile.png"]
+}

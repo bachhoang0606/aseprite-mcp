@@ -180,8 +180,9 @@ dep, deterministic-and-tested path.
       error. The summary carries `regrid {detected_scale, native, applied}`. No extra bridge
       round-trip when a detected native grid already fixes both dims.
 - [x] No new dependency; `cargo test --bins` runnable locally (no SAC relink). 143 tests pass.
-      **Live-verify pending an Aseprite run** (decode → downscale → `draw_pixels` onto a layer;
-      and a scaled-reference `regrid` recovery).
+      **Live-verified 2026-06-24** (`evals/runs/2026-06-24/live_verify.json`): base import + snap
+      (Path-4 run); **`regrid:true`** on a 48×48 that is really 12×12×4 → detected_scale 4, recovered
+      native 12×12; **`auto_colors:5`** (frequency) → extracted the exact 5 source colours.
 
 ## Eval (how we grade it)
 - **Deterministic (Tier-A, no Aseprite):** the `downscale_to_grid` table above

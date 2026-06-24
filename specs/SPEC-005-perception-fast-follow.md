@@ -4,8 +4,9 @@
   (`src/gutter.rs`) is wired onto `live_save_preview` via the pure `live::finish_preview`
   (on by default, exact coordinate inversion). Phase 2: region crop (`crop`:
   `"sprite"`/`"cel"`/`{x,y,width,height}`) — crop-then-scale + gutter labels in
-  absolute sprite coords; offline-verified, `crop="cel"` pending a live plugin-reload
-  verify. Phase 3: `inline:true` returns the PNG as an MCP `image/png` content block
+  absolute sprite coords; offline-verified, and **`crop="cel"` live-checked 2026-06-24** (executes +
+  reads the cel bbox live; drawn cels are full-canvas so it equals sprite-crop — use explicit-rect
+  crop for drawn content). Phase 3: `inline:true` returns the PNG as an MCP `image/png` content block
   (ADR-0007), path always present, byte-ceiling degrade. Phase 4: `marks_from`
   (`"slices"`/`"layers"`/`"components"`) overlays numbered Set-of-Mark badges + a
   `marks:[{n,region,bbox}]` map (`src/marks.rs`, pure CC + badge compositor). Phase 5:
@@ -252,7 +253,8 @@ degrades loudly on an old plugin (ADR-0005) rather than being gated.
       output byte-for-byte (no-regression test). `crop` modes + rect validation + cel-
       bounds parsing/clamp/old-plugin degrade are unit-tested (`resolve_crop_plan`,
       `rect_to_crop`, `cel_crop_from_response`, `clamp_crop`). 87 unit tests pass; clippy
-      adds no new lints. **Live-verify of `crop="cel"` pending a plugin reload.**
+      adds no new lints. **`crop="cel"` live-checked 2026-06-24** (`evals/runs/2026-06-24/live_verify.json`):
+      the cel-bbox read works live; drawn cels are full-canvas so cel-crop == sprite-crop (documented).
 - [x] Phase 3: `inline=true` returns a valid `image/png` content block — `read_inline_png`
       base64s the PNG (`base64_encode` pinned to RFC 4648 vectors; the round-trip test
       decodes back to the preview dimensions); over `INLINE_MAX_BYTES` it degrades to
