@@ -1,0 +1,20 @@
+{
+  "description": "Tool-selection gold set (SPEC tool-surface measurement). Each task names the tool(s) that SHOULD be selected. `profile` is where the correct tool lives in surface.json — tasks whose profile != core stress the recall risk of hard gating.",
+  "cases": [
+    { "id": "dither", "prompt": "Shade this rectangle (x8 y10 w12 h6) with an ordered Bayer dither between skin-mid and skin-dark at 40%.", "correct_tools": ["live_dither_fill"], "profile": "color" },
+    { "id": "gradient", "prompt": "Re-map this rough grey blob so every colour snaps onto my green ramp dark->light.", "correct_tools": ["live_gradient_map"], "profile": "color" },
+    { "id": "palette_snap", "prompt": "These pixels drifted off-palette — snap them back to my locked palette using perceptual (CIELAB) colour distance.", "correct_tools": ["live_palette_snap", "live_snap_colors"], "profile": "color" },
+    { "id": "style_profile", "prompt": "Extract a machine-checkable style profile (native grid, ramps with lint, light direction, heads-tall) from the active sprite.", "correct_tools": ["live_extract_style_profile"], "profile": "color" },
+    { "id": "rotate", "prompt": "Rotate the selected cel about 30 degrees onto a new layer without introducing any new colours.", "correct_tools": ["live_rotate"], "profile": "transform" },
+    { "id": "import_anim", "prompt": "I have a 4-frame walk sprite-sheet PNG (1 row). Bring it in as an Aseprite animation on a shared 12-colour palette.", "correct_tools": ["live_import_animation"], "profile": "animation" },
+    { "id": "filmstrip", "prompt": "Save one image that shows every animation frame side by side so I can review the walk-cycle timing.", "correct_tools": ["live_save_filmstrip"], "profile": "animation" },
+    { "id": "tag", "prompt": "Add a forward-loop animation tag named 'walk' spanning frames 1 to 4.", "correct_tools": ["live_new_tag"], "profile": "animation" },
+    { "id": "pack_tiles", "prompt": "Turn my painted level mockup layer into a deduplicated tileset plus a tilemap that reconstructs it.", "correct_tools": ["live_pack_similar_tiles"], "profile": "tilemap" },
+    { "id": "autotile", "prompt": "I drew the 4 corner quarters (fill/outer/edge/inner). Generate the full 47-tile blob autotile sheet from them.", "correct_tools": ["live_create_autotile_template"], "profile": "tilemap" },
+    { "id": "rename_layer", "prompt": "Rename the layer currently called 'Layer 1' to 'Body'.", "correct_tools": ["live_rename_layer"], "profile": "layers" },
+    { "id": "export_sheet", "prompt": "Export the sprite as a packed spritesheet PNG plus a JSON data file that includes the frame tags.", "correct_tools": ["export_spritesheet"], "profile": "io_escape" },
+    { "id": "draw", "prompt": "Draw this batch of 20 specific coloured pixels onto the Body layer.", "correct_tools": ["live_draw_pixels"], "profile": "core" },
+    { "id": "preview", "prompt": "Give me a vision-legible upscaled preview of the sprite with a labelled coordinate gutter so I can read off pixel positions.", "correct_tools": ["live_save_preview"], "profile": "core" },
+    { "id": "import_ref", "prompt": "Convert this reference photo into 48x48 palette-locked pixel art on a Reference layer so I can trace over it.", "correct_tools": ["live_import_reference"], "profile": "core" }
+  ]
+}

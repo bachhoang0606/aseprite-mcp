@@ -1,0 +1,111 @@
+{
+  "flat": {
+    "dither": {
+      "chosen_tool": "live_dither_fill"
+    },
+    "gradient": {
+      "chosen_tool": "live_gradient_map"
+    },
+    "palette_snap": {
+      "chosen_tool": "live_palette_snap"
+    },
+    "style_profile": {
+      "chosen_tool": "live_extract_style_profile"
+    },
+    "rotate": {
+      "chosen_tool": "live_rotate"
+    },
+    "import_anim": {
+      "chosen_tool": "live_import_animation"
+    },
+    "filmstrip": {
+      "chosen_tool": "live_save_filmstrip"
+    },
+    "tag": {
+      "chosen_tool": "live_new_tag"
+    },
+    "pack_tiles": {
+      "chosen_tool": "live_pack_similar_tiles"
+    },
+    "autotile": {
+      "chosen_tool": "live_create_autotile_template"
+    },
+    "rename_layer": {
+      "chosen_tool": "live_rename_layer"
+    },
+    "export_sheet": {
+      "chosen_tool": "export_spritesheet"
+    },
+    "draw": {
+      "chosen_tool": "live_draw_pixels"
+    },
+    "preview": {
+      "chosen_tool": "live_save_preview"
+    },
+    "import_ref": {
+      "chosen_tool": "live_import_reference"
+    }
+  },
+  "gated": {
+    "dither": {
+      "open_profile": "color",
+      "chosen_tool": "live_dither_fill"
+    },
+    "gradient": {
+      "open_profile": "color",
+      "chosen_tool": "live_gradient_map"
+    },
+    "palette_snap": {
+      "open_profile": "color",
+      "chosen_tool": "live_palette_snap"
+    },
+    "style_profile": {
+      "open_profile": "tilemap",
+      "chosen_tool": "live_extract_style_profile"
+    },
+    "rotate": {
+      "open_profile": "transform",
+      "chosen_tool": "live_rotate"
+    },
+    "import_anim": {
+      "open_profile": "animation",
+      "chosen_tool": "live_import_animation"
+    },
+    "filmstrip": {
+      "open_profile": "animation",
+      "chosen_tool": "live_save_filmstrip"
+    },
+    "tag": {
+      "open_profile": "animation",
+      "chosen_tool": "live_new_tag"
+    },
+    "pack_tiles": {
+      "open_profile": "tilemap",
+      "chosen_tool": "live_pack_similar_tiles"
+    },
+    "autotile": {
+      "open_profile": "tilemap",
+      "chosen_tool": "live_create_autotile_template"
+    },
+    "rename_layer": {
+      "open_profile": "layers",
+      "chosen_tool": "live_rename_layer"
+    },
+    "export_sheet": {
+      "open_profile": "io_escape",
+      "chosen_tool": "export_spritesheet"
+    },
+    "draw": {
+      "open_profile": "core",
+      "chosen_tool": "live_draw_pixels"
+    },
+    "preview": {
+      "open_profile": "core",
+      "chosen_tool": "live_save_preview"
+    },
+    "import_ref": {
+      "open_profile": "core",
+      "chosen_tool": "live_import_reference"
+    }
+  }
+}
