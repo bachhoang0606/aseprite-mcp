@@ -1,0 +1,17 @@
+{
+  "n_cases": 15,
+  "flat": {
+    "selection_accuracy": 1.0,
+    "misses": [],
+    "avg_tokens_eager_client": 23429,
+    "avg_tokens_deferred_client": 2275
+  },
+  "gated": {
+    "status": "pending (no selections yet)"
+  },
+  "standing_cost_per_turn": {
+    "flat_eager": 23429,
+    "flat_deferred": 1386,
+    "gated_dynamic": 7336
+  }
+}
