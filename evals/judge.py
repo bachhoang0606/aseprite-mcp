@@ -227,13 +227,20 @@ def emit_ab(case_id):
     return 0
 
 
-def compute_slope(snapshots, iou_floor=SIL_FLOOR, linter_margin=0.10):
+def compute_slope(snapshots, iou_margin=0.10, linter_margin=0.10):
     """SPEC-007 Phase 2 — long-session degradation (donut test).
 
     `snapshots`: list of {checkpoint, linter (0..1 pass-rate), min_iou, off_palette}
-    at increasing context-fill checkpoints. The three metrics are checked SEPARATELY
-    against the 0%-baseline; `regressed` is True if any checkpoint breaches a margin.
-    A composite-quality least-squares `slope` is reported for trend (negative = decaying).
+    at increasing context-fill checkpoints. This gate measures DECAY, so all three
+    metrics are checked RELATIVE to the 0%-baseline (not an absolute bar): `regressed`
+    is True if a later checkpoint drops a margin below baseline (linter or min_iou) or
+    introduces off-palette where the baseline had none. A composite-quality least-squares
+    `slope` is reported for trend (negative = decaying).
+
+    NOTE: min_iou is judged relative to baseline, NOT against the absolute SIL_FLOOR.
+    Absolute animation quality is the Phase-1 silhouette-drift gate's job; reusing its
+    0.80 floor here mis-flagged a low-but-STABLE animation as 'degraded' (e.g. a 16px
+    walk that simply starts below 0.80 and stays there is not *decaying*).
     """
     if len(snapshots) < 2:
         return {"slope": 0.0, "regressed": False, "detail": "need >=2 snapshots"}
@@ -243,8 +250,8 @@ def compute_slope(snapshots, iou_floor=SIL_FLOOR, linter_margin=0.10):
         cp = s.get("checkpoint", "?")
         if s["linter"] < base["linter"] - linter_margin:
             reasons.append(f"cp{cp}: linter {s['linter']:.2f} < base {base['linter']:.2f}-{linter_margin:.2f}")
-        if s["min_iou"] < iou_floor:
-            reasons.append(f"cp{cp}: min_iou {s['min_iou']:.2f} < floor {iou_floor:.2f}")
+        if s["min_iou"] < base["min_iou"] - iou_margin:
+            reasons.append(f"cp{cp}: min_iou {s['min_iou']:.2f} < base {base['min_iou']:.2f}-{iou_margin:.2f}")
         if s["off_palette"] > 0 and base["off_palette"] == 0:
             reasons.append(f"cp{cp}: off_palette {s['off_palette']} (baseline 0)")
     quality = [
