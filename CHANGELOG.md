@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+- **Trimmed 6 oversized tool descriptions** (`live_save_preview` 2.3k→0.9k chars, plus
+  `import_reference`/`import_animation`/`rotate`/`dither_fill`/`create_autotile_template`) — lowers
+  the schema token cost (~640 tokens when these load; `save_preview` loads often in the perception
+  loop) by dropping verbose worked-examples while **keeping the load-bearing cues** (e.g.
+  `save_preview`'s one-line gutter-inversion rule). **Behaviour unchanged** (params/logic identical).
+  The trim is **measured-safe**: the tool-USAGE harness (`evals/tool_usage/`) scored usage accuracy
+  1.000 (full) = 1.000 (trimmed) across 8 tasks — see ADR-0008 + `evals/tool_usage/runs/2026-06-24/`.
+  No new dependency.
+
 ### Added
 - **SPEC-012 — `live_import_animation` (free Path-3 hybrid-generation backend; roadmap Path 3).**
   The offline route to **organic motion**: ingest a user-supplied generated animation — a
