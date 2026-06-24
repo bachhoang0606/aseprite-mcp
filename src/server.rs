@@ -197,34 +197,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "Save a vision-legible PNG preview of the active live sprite, nearest-neighbor \
-            upscaled so the sprite's long edge lands near ~1024px. Raw 1x previews of small sprites \
-            are below the resolution a vision model can read reliably, so use THIS (not \
-            live_save_copy_as) whenever an agent needs to SEE its own work. Pass an integer `scale` \
-            to override, or omit it for an automatic factor (capped at 16x). By default the preview \
-            gets a labelled coordinate gutter (numeric ticks along the top + left) so you can name \
-            the exact source (x,y) of a pixel to fix. Check `gutter_applied` in the result: when \
-            true, invert with source_x = (preview_x - gutter.left_w) / scale and source_y = \
-            (preview_y - gutter.top_h) / scale; when false (suppressed, or auto-degraded on a sprite \
-            too large for a legible gutter — see `gutter_skipped`) the file is the bare upscaled art, \
-            so source_x = preview_x / scale and source_y = preview_y / scale. Set `gutter:false` to \
-            suppress it, `gutter:true` to require it (errors if illegible), or tune `gutter_step` \
-            (default 8 source-px). `crop` focuses the upscale budget on the subject: \"sprite\" \
-            (default, whole canvas), \"cel\" (the active cel's bbox — a small cel then fills ~1024px \
-            instead of a few), or {x,y,width,height}; the crop origin is reported as `crop` and the \
-            gutter labels read ABSOLUTE sprite coords, so add `crop.x`/`crop.y` (already baked into \
-            the gutter labels) when inverting. Returns source size (the previewed region), chosen \
-            scale, crop origin, preview size, and (when drawn) the gutter band extents. \
-            Set `inline:true` to ALSO return the PNG as an inline base64 image/png block so a \
-            vision client sees the pixels directly (the file path is always present too); an \
-            oversized preview degrades to path + a note rather than blowing the context budget. \
-            Set `marks_from` to overlay numbered Set-of-Mark badges and get a `marks` \
-            [{n, region, bbox}] map: \"slices\" (one badge per named slice), \"layers\" (one per \
-            visible layer's cel at the active frame), or \"components\" (one per connected opaque \
-            blob). Then the critic can say \"region 3 has a stray pixel\" and you map 3 -> that \
-            slice/layer/blob via the returned bbox — no fragile free-form coordinates. `marks` \
-            is present (possibly []) whenever marks are requested; if more than a cap are found \
-            only the largest are badged and `marks_truncated` reports the true total."
+        description = "Save an upscaled, vision-legible PNG preview of the active sprite (nearest-neighbor, auto-scaled so the long edge nears ~1024px; raw 1x of small sprites is unreadable to vision models). Use this whenever the agent needs to SEE its work. Options: `scale` (int, override the auto factor, <=16x); `gutter` (labelled coordinate ticks, default on -- to map a preview pixel back to source: source = (preview - gutter_band) / scale, or preview/scale when off; see `gutter_applied`/`gutter_skipped`); `crop` (\"sprite\" default / \"cel\" / {x,y,width,height}; crop origin is reported and baked into the gutter labels); `inline:true` (also return the PNG as a base64 image block; oversized degrades to path + note); `marks_from` (\"slices\"/\"layers\"/\"components\" -> numbered Set-of-Mark badges + a `marks` [{n,region,bbox}] map). Returns source/preview size, scale, crop origin, gutter extents."
     )]
     async fn live_save_preview(
         &self,
@@ -303,13 +276,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-009: ordered (Bayer) dither-fill a rectangle between two palette \
-            colours — the tedious deterministic shading an LLM does worst freehand, made \
-            palette-legal by construction (only `color_a`/`color_b` are emitted). Pass `rect` \
-            {x,y,width,height}, two `#rrggbb` colours (usually two adjacent ramp steps), an \
-            optional `level` 0..1 (fraction of color_b, default 0.5), and `matrix` \
-            (\"bayer4\" default / \"bayer2\" / \"checker\"). Drawn onto `layer` via the existing \
-            draw_pixels path (no new plugin command); region capped to avoid huge batches."
+        description = "SPEC-009: ordered (Bayer) dither-fill a rectangle between two palette colours -- the tedious deterministic shading made palette-legal by construction (only color_a/color_b are emitted). Params: `rect` {x,y,width,height}; `color_a`/`color_b` (#rrggbb, usually two adjacent ramp steps); `level` (0..1 = fraction of color_b, default 0.5); `matrix` (\"bayer4\" default / \"bayer2\" / \"checker\"); `layer` (default AI Draft)."
     )]
     async fn live_dither_fill(
         &self,
@@ -319,15 +286,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-009: artifact-free RotSprite rotation — rotate a region of the \
-            sprite by ANY angle (`angle` degrees, positive = clockwise) and stamp the clean \
-            result onto a NEW layer (the source is left as-is). Hand-rolled RotSprite (scale \
-            ×8 Scale2× → nearest-neighbour rotate → mode downscale) so the result introduces \
-            NO new colours — palette-legal by construction, none of the AA fringe a naive \
-            rotate leaves; right angles are exact. Pass `rect` {x,y,width,height} (or omit for \
-            the whole canvas / `selection_only` for the active selection); `at_x`/`at_y` to \
-            place the result (default: centred on the source, rotate in place); `layer` \
-            (default \"Rotated\"). Reads the flattened render; region capped (×8 buffer)."
+        description = "SPEC-009: artifact-free RotSprite rotation by ANY angle, stamped onto a NEW layer (source left as-is) -- palette-legal by construction (introduces no new colours; right angles are exact). Params: angle (degrees, positive = clockwise, required); `rect` {x,y,width,height} OR `selection_only` (else the whole canvas); `at_x`/`at_y` (placement, default centred in place); `layer` (default \"Rotated\")."
     )]
     async fn live_rotate(
         &self,
@@ -535,15 +494,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-006: Import a PNG reference image as palette-locked pixel art onto a layer in \
-            the open sprite — the unlock for the hybrid/reference pipeline. Content-aware downscales the \
-            reference to a target grid (`width`/`height`, default the active sprite's size; `method` \
-            \"dominant\" = per-cell majority vote, edge-preserving, default, or \"average\") and snaps each \
-            cell to a palette (`palette` as a #rrggbb list, or the active sprite palette by default; \
-            `snap:false` keeps source colours), then draws the result onto `layer` (default \"Reference\") \
-            at `at_x`/`at_y`. Lets the agent trace/clean over a real reference instead of inventing organic \
-            shapes. PNG input only (convert other formats first); target capped at 256px/edge. Returns \
-            source/target size, factor, method, palette size, pixels drawn, and distinct colours."
+        description = "SPEC-006: import a PNG reference as palette-locked pixel art on a layer -- the unlock for the reference/trace pipeline. Content-aware downscales to a target grid then snaps to a palette. Params: filename (PNG); width/height (target, default sprite size); method (\"dominant\" majority/default or \"average\"); palette (#rrggbb list) OR auto_colors:N (+palette_method median_cut/kmeans/frequency) OR snap:false (keep source colours); regrid (de-fake a scaled reference to its native grid); layer (default \"Reference\"), at_x/at_y. Target capped 256px/edge."
     )]
     async fn live_import_reference(
         &self,
@@ -553,17 +504,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-012 (free Path-3 hybrid generation): import a user-supplied generated ANIMATION \
-            as a palette-locked Aseprite animation — the offline route to organic motion. Provide EITHER a \
-            sprite-sheet `filename` (PNG) + `sheet` {cols, rows} (sliced row-major into equal frames) OR a \
-            `frames` list of PNG paths (one per frame, all same size). Each frame is content-aware downscaled \
-            to the target grid (`width`/`height`, default the sprite size) and snapped to ONE shared palette \
-            across all frames (`palette`, or `auto_colors:N` extracted from all frames combined, or the active \
-            palette) so the animation doesn't colour-flicker; `regrid:true` de-fakes scaled frames (detected on \
-            frame 0, applied to all). Lays the frames on `layer` (default \"Reference Anim\") from `start_frame`, \
-            sets per-frame duration from `fps` (default 12), and tags the range (`tag`, default \"ref\"). PNG only; \
-            ≤64 frames. Returns frames/per-frame size/palette/tag/regrid/auto_palette. The agent then traces/cleans \
-            the organic motion instead of inventing it."
+        description = "SPEC-012 (free Path-3): import a user-supplied generated ANIMATION as a palette-locked Aseprite animation. Source: EITHER filename + sheet{cols,rows} (a sprite-sheet PNG sliced row-major) OR frames[] (PNG paths, uniform size). Each frame is downscaled + snapped to ONE shared palette across all frames (palette OR auto_colors:N +palette_method) so it doesn't colour-flicker; regrid de-fakes scaled frames. Params: width/height, method, layer (default \"Reference Anim\"), start_frame, tag (default \"ref\"), fps (default 12), at_x/at_y. PNG only, <=64 frames."
     )]
     async fn live_import_animation(
         &self,
@@ -712,7 +653,7 @@ impl AsepriteServer {
     }
 
     #[tool(
-        description = "SPEC-003 Phase 3: Generate an autotile sheet from FOUR corner quarters you drew as a left-to-right strip [fill | outer | edge | inner] (each tile_size/2 square; outer=convex top-left, edge=boundary on top, inner=concave top-left notch). layout='blob47' (default) composes all 47 corner+edge tiles; layout='wang16' composes 16 edge-only tiles (inner quarter unused). Drawn deterministically onto a new layer; then run live_pack_similar_tiles (grid_size=tile_size) to build the tileset. Draw ~4 quarters, get 16/47 tiles."
+        description = "SPEC-003 Phase 3: compose an autotile sheet from FOUR corner quarters you drew as a left-to-right strip [fill | outer | edge | inner] (each tile_size/2 square; outer=convex top-left, edge=boundary on top, inner=concave top-left notch). layout=\"blob47\" (47 corner+edge tiles, default) or \"wang16\" (16 edge-only, inner unused). Drawn onto a new layer; then run live_pack_similar_tiles(grid_size=tile_size) to build the tileset. Params: tile_size (even 4..=64, required), layout, source_x/source_y (strip top-left, default 0,0), at_x/at_y, layer."
     )]
     async fn live_create_autotile_template(
         &self,
