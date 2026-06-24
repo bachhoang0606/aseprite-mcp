@@ -174,6 +174,20 @@ def check_tool_select_scorer():
         return False, f"score.py selftest FAILED: {e}"
 
 
+def check_tool_usage_scorer():
+    """Tool-usage correctness: the scorer detects a quality-regressing trim and prices the
+    token saving (deterministic — exercises evals/tool_usage/score.py --selftest)."""
+    import contextlib
+    import io
+    score = _load_module(os.path.join(ROOT, "evals", "tool_usage", "score.py"), "tuscore")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = score.selftest()
+        return rc == 0, "score.py selftest passed"
+    except AssertionError as e:
+        return False, f"score.py selftest FAILED: {e}"
+
+
 def check_ramp_lint_quality():
     """SPEC-008: the project's own ramps lint well (rules/01 calibration) and a
     value-only grey ramp is flagged — making ramp quality a deterministic axis."""
@@ -225,6 +239,7 @@ CHECKS = {
     "ramp_lint_quality": check_ramp_lint_quality,
     "regrid_detects_scale": check_regrid_detects_scale,
     "tool_select_scorer": check_tool_select_scorer,
+    "tool_usage_scorer": check_tool_usage_scorer,
 }
 
 

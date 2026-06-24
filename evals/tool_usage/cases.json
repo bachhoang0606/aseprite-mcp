@@ -1,0 +1,29 @@
+{
+  "description": "Tool-USAGE gold set: given the tool (fixed) + its description (full vs trimmed), does the model emit the CORRECT call (right params/values)? `type:call` checks params; `type:compute` checks a value the model must derive from the description (tests load-bearing how-to). The trimmed save_preview deliberately drops its coordinate-inversion formula.",
+  "cases": [
+    { "id": "preview_cel", "tool": "live_save_preview", "type": "call",
+      "prompt": "Save a preview of ONLY the active cel, with the coordinate gutter on, and also return the image inline.",
+      "required": { "crop": "cel", "gutter": true, "inline": true } },
+    { "id": "preview_scale", "tool": "live_save_preview", "type": "call",
+      "prompt": "Save a preview of the whole sprite at exactly 10x upscale, with NO gutter.",
+      "required": { "scale": 10, "gutter": false } },
+    { "id": "preview_invert", "tool": "live_save_preview", "type": "compute",
+      "prompt": "You saved a guttered preview at scale=16; the gutter's left band is 40px wide and the top band 32px tall. In the preview you spot a stray pixel at preview coordinate (296, 168). What is the SOURCE sprite pixel (x, y)? Return integers source_x and source_y.",
+      "expect": { "source_x": 16, "source_y": 8 }, "tol": 1 },
+    { "id": "import_anim", "tool": "live_import_animation", "type": "call",
+      "prompt": "Import walk.png as a 4-columns-by-1-row sprite-sheet, target 32x32 per frame, an auto 8-colour palette extracted by frequency, at 8 fps, tagged 'run'.",
+      "required": { "sheet": { "cols": 4, "rows": 1 }, "width": 32, "height": 32, "auto_colors": 8, "palette_method": "frequency", "fps": 8, "tag": "run" } },
+    { "id": "import_ref_regrid", "tool": "live_import_reference", "type": "call",
+      "prompt": "Import scaled_ref.png at 64x64, de-faking the scaled pixel grid first, snapped to the active palette.",
+      "required": { "width": 64, "height": 64, "regrid": true } },
+    { "id": "rotate_sel", "tool": "live_rotate", "type": "call",
+      "prompt": "Rotate the active selection clockwise 30 degrees, putting the result on a layer named 'Spin'.",
+      "required": { "angle": 30, "selection_only": true, "layer": "Spin" } },
+    { "id": "dither", "tool": "live_dither_fill", "type": "call",
+      "prompt": "Bayer-2 dither a rectangle at x=4 y=4 width=10 height=8 between #aa0000 and #ff8800, with 30% of the second colour.",
+      "required": { "rect": { "x": 4, "y": 4, "width": 10, "height": 8 }, "color_a": "#aa0000", "color_b": "#ff8800", "level": 0.3, "matrix": "bayer2" } },
+    { "id": "autotile_wang", "tool": "live_create_autotile_template", "type": "call",
+      "prompt": "Generate the wang16 (edge-only) autotile set from the 4 quarters I drew at source (0,0), tile size 8.",
+      "required": { "tile_size": 8, "layout": "wang16" } }
+  ]
+}

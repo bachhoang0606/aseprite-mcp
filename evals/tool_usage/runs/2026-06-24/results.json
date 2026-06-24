@@ -1,0 +1,23 @@
+{
+  "n_cases": 8,
+  "full": {
+    "usage_accuracy": 1.0,
+    "param_recall": 1.0,
+    "misses": []
+  },
+  "trimmed": {
+    "usage_accuracy": 1.0,
+    "param_recall": 1.0,
+    "misses": []
+  },
+  "description_tokens": {
+    "full": 1486,
+    "trimmed": 300,
+    "saving": 1186
+  },
+  "verdict": {
+    "usage_accuracy_delta_trimmed_minus_full": 0.0,
+    "token_saving_from_trim": 1186,
+    "trim_is_safe": true
+  }
+}
