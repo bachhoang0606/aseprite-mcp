@@ -3,6 +3,21 @@
 ## Unreleased
 
 ### Added
+- **SPEC-012 — `live_import_animation` (free Path-3 hybrid-generation backend; roadmap Path 3).**
+  The offline route to **organic motion**: ingest a user-supplied generated animation — a
+  **sprite-sheet PNG** (`filename` + `sheet {cols, rows}`, sliced row-major) or a **list of PNG
+  frames** (`frames: [...]`, uniform size) — and lay it down as a **palette-locked Aseprite
+  animation** the agent then traces/cleans, instead of inventing organic shapes from text. Each
+  frame is content-aware downscaled to the target grid and snapped to **ONE shared palette across
+  all frames** (`palette`, or `auto_colors:N` extracted from *all frames combined* via the new
+  `palette_extract::extract_from_images`, or the active palette) so the animation doesn't
+  colour-flicker; `regrid:true` de-fakes scaled frames (detected on frame 0, applied to all). Lays
+  N≤64 frames on `layer` (default `"Reference Anim"`) from `start_frame`, sets per-frame duration
+  from `fps` (default 12), and tags the range (`tag`, default `"ref"`). Pure `reference::slice_sheet`
+  + reuse of the SPEC-006 per-frame core; orchestrates only existing live tools
+  (`ensure_frames`/`draw_pixels`/`set_frame_properties`/`new_tag`). **PNG-only / no new dependency**
+  (GIF/video decoders stay a deliberate dep decision, like the paid generation path), **no new plugin
+  command**. 165 tests (slice + multi-frame palette unit tests); schema-contract covers the tool.
 - **SPEC-003 Phase 3 — `wang16` autotile layout (edge-only 16-tile set).** Completes the
   `live_create_autotile_template` layouts: `layout="wang16"` composes the 16 edge-only tiles
   (indexed directly by the 4-bit cardinal mask `N|E|S|W`, 0..=15) from the same 4 corner quarters.

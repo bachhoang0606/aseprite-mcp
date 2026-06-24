@@ -234,6 +234,41 @@ pub fn regrid_then_fit(
     downscale_to_grid(&recovered, target.0, target.1, palette, method)
 }
 
+/// Largest number of frames `live_import_animation` will lay down in one call.
+pub const MAX_ANIM_FRAMES: u32 = 64;
+
+/// Slice a sprite-sheet into `cols * rows` equal frames in row-major order (left→right,
+/// then top→bottom — the canonical sheet layout). `width % cols` and `height % rows` must be
+/// zero (a sheet's frames are equal cells); a non-divisible sheet or a zero `cols`/`rows` is a
+/// loud `Err`. Each frame is `width/cols × height/rows`. Pure (image-in / images-out).
+pub fn slice_sheet(img: &RgbaImage, cols: u32, rows: u32) -> Result<Vec<RgbaImage>, String> {
+    if cols == 0 || rows == 0 {
+        return Err(format!("sheet cols/rows must be ≥1 (got {cols}×{rows})"));
+    }
+    let (w, h) = (img.width(), img.height());
+    if w % cols != 0 || h % rows != 0 {
+        return Err(format!(
+            "sheet {w}×{h} is not evenly divisible by {cols}×{rows} cells \
+             (need width % cols == 0 and height % rows == 0)"
+        ));
+    }
+    let (fw, fh) = (w / cols, h / rows);
+    let mut frames = Vec::with_capacity((cols * rows) as usize);
+    for r in 0..rows {
+        for c in 0..cols {
+            // crop the (c,r) cell; copy is bounded by the already-decoded ≤MAX_SOURCE_EDGE buffer.
+            let mut frame = RgbaImage::new(fw, fh);
+            for y in 0..fh {
+                for x in 0..fw {
+                    frame.put_pixel(x, y, *img.get_pixel(c * fw + x, r * fh + y));
+                }
+            }
+            frames.push(frame);
+        }
+    }
+    Ok(frames)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +291,41 @@ mod tests {
             assert!(b > a, "empty cell at {o}: {a}..{b}");
             assert!(b <= 2);
         }
+    }
+
+    #[test]
+    fn slice_sheet_splits_row_major_into_equal_frames() {
+        // 4×4 sheet as a 2×2 grid of four 2×2 cells, each a distinct solid colour.
+        let mut img = RgbaImage::new(4, 4);
+        let cell = [
+            [10, 0, 0, 255],   // (col0,row0) top-left
+            [0, 20, 0, 255],   // (col1,row0) top-right
+            [0, 0, 30, 255],   // (col0,row1) bottom-left
+            [40, 40, 0, 255],  // (col1,row1) bottom-right
+        ];
+        for r in 0..2u32 {
+            for c in 0..2u32 {
+                let color = cell[(r * 2 + c) as usize];
+                for y in 0..2 {
+                    for x in 0..2 {
+                        px(&mut img, c * 2 + x, r * 2 + y, color);
+                    }
+                }
+            }
+        }
+        let frames = slice_sheet(&img, 2, 2).expect("divisible sheet");
+        assert_eq!(frames.len(), 4);
+        // Row-major order matches the cell table; every frame is a uniform 2×2.
+        for (i, f) in frames.iter().enumerate() {
+            assert_eq!((f.width(), f.height()), (2, 2));
+            for p in f.pixels() {
+                assert_eq!(p.0, cell[i], "frame {i} should be one solid colour");
+            }
+        }
+        // Non-divisible dims and zero cols/rows are loud errors.
+        assert!(slice_sheet(&img, 3, 2).is_err()); // 4 % 3 != 0
+        assert!(slice_sheet(&img, 0, 2).is_err());
+        assert!(slice_sheet(&img, 2, 0).is_err());
     }
 
     #[test]
