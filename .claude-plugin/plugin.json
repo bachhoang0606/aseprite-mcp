@@ -1,7 +1,7 @@
 {
   "name": "aseprite-pixel-art",
   "displayName": "Aseprite Pixel-Art",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Professional pixel-art collaborator for Aseprite. Draws live in the open Aseprite window via an MCP server + WebSocket bridge, guided by encoded pixel-art rules, /pixel-* skills, review/rig/palette/animation subagents, and a live-first guard hook.",
   "author": {
     "name": "bachhoang0606",
