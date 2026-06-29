@@ -1,0 +1,5 @@
+# scratch previews (regenerate via reel.py + the contact-sheet snippets in README/PR)
+out/_*.png
+# raw PNG frame dumps — the MP4 source; regenerate with `reel.py --frames`
+out/frames/
+__pycache__/
