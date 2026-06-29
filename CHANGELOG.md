@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.2.0 — 2026-06-25
+
+> Milestone release: the prioritized roadmap (#1–#13) is complete and all six research capability
+> paths have an answer — perception, constrained drawing, hybrid generation (orchestration, no
+> backend), reference grounding, tilemaps, and the objective eval gate. Includes the blind-judged
+> §A/§B/§C benchmarks, the tool-surface analysis (gating rejected, descriptions trimmed), and the
+> dep bump to rmcp 1.8. No new dependency beyond the rmcp bump.
+
 ### Added
 - **SPEC-013 — `/pixel-generate` skill (optional hybrid-generation orchestration; research Path 3).**
   The *free, no-backend* realization of Path 3: we never build or host an image model — the skill
@@ -16,6 +24,8 @@
   orchestration of existing tools (like `/pixel-asset`). Skill listed in `skills/README.md`.
 
 ### Changed
+- **Dependency: `rmcp` 1.7.0 → 1.8.0** (the MCP framework). Build + 165 tests + the schema-contract
+  test pass unchanged on 1.8; no code change required. (CI dep bump #44.)
 - **Trimmed 6 oversized tool descriptions** (`live_save_preview` 2.3k→0.9k chars, plus
   `import_reference`/`import_animation`/`rotate`/`dither_fill`/`create_autotile_template`) — lowers
   the schema token cost (~640 tokens when these load; `save_preview` loads often in the perception
