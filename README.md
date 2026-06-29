@@ -3,6 +3,13 @@
 [![Quality gates](https://github.com/bachhoang0606/aseprite-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/bachhoang0606/aseprite-mcp/actions/workflows/quality.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+<p align="center">
+  <img src="demo/reel/out/reel_45s.gif" width="480"
+       alt="Demo reel: an AI agent draws a goblin sprite live in Aseprite — locks a palette, blocks the silhouette, applies hue-shifted shading, then reviews its own work, catches a mismatched eye and fixes it, animates a walk cycle, autotiles a scene and exports an engine-ready sheet. Built from real tool outputs and blind-judged numbers; staged for clarity.">
+</p>
+
+<p align="center"><sub>The agent draws, <b>sees its own work and fixes a mistake</b>, animates, autotiles and exports — built from real tool outputs &amp; blind-judged benchmarks. <a href="demo/reel/POST.md">How this reel was made →</a></sub></p>
+
 A **live-first** Model Context Protocol (MCP) server, written in Rust, that lets an
 AI agent drive a **running Aseprite** session — drawing, animating, managing
 palettes and tilemaps directly in the open editor, with perception tools so the
