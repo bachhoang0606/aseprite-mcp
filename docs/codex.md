@@ -59,6 +59,7 @@ them under **`.agents/skills/`**:
 | `pixel-palette` | `/pixel-palette` |
 | `pixel-animate` | `/pixel-animate` |
 | `pixel-review` | `/pixel-review` |
+| `pixel-generate` | `/pixel-generate` (image/sheet → disciplined pixels; uses Codex `$imagegen`) |
 | `pixel-doctor` | `/pixel-doctor` |
 
 Codex scans these locations (nearest wins): repo `.agents/skills/`, then
@@ -74,7 +75,7 @@ Copy-Item .agents\skills\pixel-* $HOME\.agents\skills\ -Recurse   # Windows
 
 Restart Codex, then invoke a skill explicitly with `$pixel-review`, `$pixel-animate`,
 `$pixel-doctor` … or via the `/skills` menu — or let Codex pick one implicitly when a
-task matches its description. Only 5 verbs are split out (the most-used); the `pixel-art`
+task matches its description. Only the most-used verbs are split out; the `pixel-art`
 umbrella covers the rest and multi-step "build a whole character" jobs.
 
 ## What differs from Claude Code
