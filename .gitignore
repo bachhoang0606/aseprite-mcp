@@ -12,3 +12,11 @@ demo/probe.txt
 .aseprite-preview.png
 __pycache__/
 *.pyc
+
+# Scratch: live pixel-art experiment outputs (previews, tanker demo)
+/_tanker*
+/tanker_chibi.png
+/tanker_chibi.aseprite
+/tanker_*.gif
+/tanker_sheet.png
+/tanker_sheet.json

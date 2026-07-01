@@ -70,6 +70,31 @@
       "id": "regrid_detects_scale",
       "covers": ["SPEC-008", "Path 4 style grounding"],
       "asserts": "the native-grid auto-detect recovers a 4x-upscale's cell size (de-fake) and leaves native art at cell 1"
+    },
+    {
+      "id": "timing_lint_good",
+      "covers": ["/pixel-animate", "/pixel-review", "rules/04", "rules/07"],
+      "asserts": "a well-timed clip (in-band idle; attack with a >=150ms impact hold and easing) yields zero error-level timing findings against knowledge/timing-budgets.json"
+    },
+    {
+      "id": "timing_lint_detects",
+      "covers": ["/pixel-animate", "/pixel-review", "rules/04", "rules/07"],
+      "asserts": "a jittery (too-fast) idle, a held-less uniform attack, and an infinitely looping death are all flagged — the rules/04 timing doctrine as a deterministic gate"
+    },
+    {
+      "id": "timing_lint_live_shape",
+      "covers": ["/pixel-animate", "/pixel-review", "rules/04", "rules/07"],
+      "asserts": "timing_lint ingests the raw live data contract — live_list_frames duration in SECONDS + 1-based frameNumber, live_list_tags fromFrame/toFrame/repeats — converting correctly (0.12s -> 120ms flagged, 0.2s passes)"
+    },
+    {
+      "id": "linter_autobudget",
+      "covers": ["/pixel-review", "/pixel-new", "/pixel-palette", "rules/01", "rules/03"],
+      "asserts": "lint_sprite derives a size-appropriate colour budget from knowledge/scale-hierarchy.json (tighter caps for smaller sprites) and flags an over-cap sprite"
+    },
+    {
+      "id": "export_guard",
+      "covers": ["/pixel-export", "rules/03"],
+      "asserts": "the pre-export guard passes a clean integer scale and rejects a fractional or nonpositive export scale (pixel-grid destruction)"
     }
   ]
 }

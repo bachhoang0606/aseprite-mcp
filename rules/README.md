@@ -14,7 +14,9 @@ a violation of one of the rules below.
 2. **While drawing** — obey `00-core-principles.md` and `02-shading-outlining-aa.md`.
 3. **For motion** — follow `04-animation.md`.
 4. **Before declaring done** — self-review against `06-review-checklist.md`
-   (the same rubric `pixel-critic` and `/pixel-review` use).
+   (the same rubric `pixel-critic` and `/pixel-review` use). For **animated**
+   sprites also score `07-animation-review.md` (timing/volume/feel), whose
+   deterministic axes are gated by `tools/timing_lint.py` + `tools/silhouette_iou.py`.
 
 ## Files
 | File | Covers | Checklist |
@@ -25,7 +27,8 @@ a violation of one of the rules below.
 | [`03-proportions-silhouette-3-4-view.md`](03-proportions-silhouette-3-4-view.md) | Proportions, silhouette, 3/4 view | 4.3 |
 | [`04-animation.md`](04-animation.md) | Timing, easing, anticipation, walk/idle/attack | 4.4 |
 | [`05-layers-and-rig.md`](05-layers-and-rig.md) | Layer/rig conventions, naming | 4.5 |
-| [`06-review-checklist.md`](06-review-checklist.md) | The pass/fail self-review rubric | 4.x, 5.6, 6.1 |
+| [`06-review-checklist.md`](06-review-checklist.md) | The pass/fail self-review rubric (static sprite) | 4.x, 5.6, 6.1 |
+| [`07-animation-review.md`](07-animation-review.md) | Scored animation review (timing/volume/feel), tool-gated | 4.4, 5.6 |
 
 ## Golden rule
 **Every pixel is a decision.** If you cannot say *why* a pixel is that color in

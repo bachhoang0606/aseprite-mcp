@@ -18,6 +18,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from pixelpng import read_png  # noqa: E402
 import lint_sprite  # noqa: E402
+import timing_lint  # noqa: E402
+import export_guard  # noqa: E402
 
 VISUAL = os.path.join(ROOT, "tests", "visual")
 PALETTE = os.path.join(ROOT, "knowledge", "palettes", "goblin-default.json")
@@ -210,6 +212,80 @@ def check_regrid_detects_scale():
     return native == 1 and scaled == 4, f"native_cell={native}, 4x_cell={scaled}"
 
 
+def check_timing_lint_good():
+    """A1: a well-timed clip (in-band idle, attack with a real >=150ms hold + easing)
+    produces zero error-level timing findings against knowledge/timing-budgets.json."""
+    budgets = timing_lint.load_budgets()
+    findings, _ = timing_lint.lint(
+        frames=[200, 220, 200, 220, 60, 80, 180, 120],
+        tags=[{"name": "idle", "from": 0, "to": 3, "repeat": 0},
+              {"name": "attack", "from": 4, "to": 7, "repeat": 1}],
+        budgets=budgets,
+    )
+    errs = timing_lint._errors(findings)
+    return len(errs) == 0, f"{len(errs)} error findings (want 0)"
+
+
+def check_timing_lint_detects():
+    """A1: a jittery idle (too fast), a held-less uniform attack, and an infinitely
+    looping death are all flagged — the rules/04 doctrine as a deterministic gate."""
+    budgets = timing_lint.load_budgets()
+    _, counts = timing_lint.lint(
+        frames=[120, 120, 120, 120, 80, 80, 80, 80, 100, 100],
+        tags=[{"name": "idle", "from": 0, "to": 3, "repeat": 0},
+              {"name": "attack_swing", "from": 4, "to": 7, "repeat": 1},
+              {"name": "death", "from": 8, "to": 9, "repeat": 0}],
+        budgets=budgets,
+    )
+    ok = (counts.get("too_fast", 0) >= 4 and counts.get("no_impact_hold", 0) == 1
+          and counts.get("loops", 0) == 1)
+    return ok, f"too_fast={counts.get('too_fast', 0)}, no_hold={counts.get('no_impact_hold', 0)}, loops={counts.get('loops', 0)}"
+
+
+def check_timing_lint_live_shape():
+    """A1: the linter ingests the RAW live output shape — live_list_frames duration in
+    SECONDS + 1-based frameNumber, live_list_tags fromFrame/toFrame/repeats — not just
+    the hand-authored ms shape. Proves the data-contract against the plugin, not vibes."""
+    budgets = timing_lint.load_budgets()
+    # A 0.12s (=120ms) idle is below the 150ms floor -> 4 too_fast; a 0.2s idle passes.
+    jitter = timing_lint.lint_clip({
+        "frames": [{"frameNumber": i + 1, "duration": 0.12} for i in range(4)],
+        "tags": [{"name": "idle", "fromFrame": 1, "toFrame": 4, "repeats": "0", "aniDir": "forward"}],
+    }, budgets)[1]
+    clean = timing_lint._errors(timing_lint.lint_clip({
+        "frames": [{"frameNumber": i + 1, "duration": 0.2} for i in range(4)],
+        "tags": [{"name": "idle", "fromFrame": 1, "toFrame": 4, "repeats": "0"}],
+    }, budgets)[0])
+    ok = jitter.get("too_fast", 0) == 4 and len(clean) == 0
+    return ok, f"live 0.12s idle too_fast={jitter.get('too_fast', 0)} (want 4), 0.2s idle errors={len(clean)} (want 0)"
+
+
+def check_linter_autobudget():
+    """A4: the colour budget is derived from canvas size (knowledge/scale-hierarchy.json)
+    — small sprites get a tight cap — and an over-cap sprite is flagged via that budget."""
+    tiers = lint_sprite.load_scale_hierarchy()
+    table = {s: lint_sprite.derive_budget(s, tiers)[0] for s in (16, 24, 32, 64, 128, 300)}
+    monotonic = all(table[a] <= table[b] for a, b in zip([16, 24, 32, 64, 128], [24, 32, 64, 128, 300]))
+    tight_small = table[16] <= 8 and table[300] >= table[16]
+    # A 9-wide, 1-tall strip of 9 distinct colours: longer side 9 -> budget 8 -> over budget.
+    px = [(i * 25 % 256, (i * 60) % 256, (i * 90) % 256, 255) for i in range(9)]
+    budget = lint_sprite.derive_budget(9, tiers)[0]
+    _, counts, _ = lint_sprite.lint(9, 1, px, palette=None, budget=budget)
+    flagged = counts.get("over_budget", 0) == 1
+    ok = monotonic and tight_small and flagged
+    return ok, f"sizes->budget={table}, over_budget_flagged={flagged}"
+
+
+def check_export_guard():
+    """A3: the export guard passes a clean integer scale and rejects a fractional /
+    nonpositive one (the pixel-grid-destroying export mistake)."""
+    clean = len(export_guard._errors(export_guard.guard(4, 32, 32, "indexed")[0])) == 0
+    frac = export_guard.guard(1.5)[1].get("non_integer_scale") == 1
+    nonpos = export_guard.guard(0)[1].get("nonpositive_scale") == 1
+    ok = clean and frac and nonpos
+    return ok, f"clean4x={clean}, rejects_1.5x={frac}, rejects_0x={nonpos}"
+
+
 def check_health_check_json():
     out = subprocess.run(
         [sys.executable, os.path.join(ROOT, "hooks", "health_check.py")],
@@ -240,6 +316,11 @@ CHECKS = {
     "regrid_detects_scale": check_regrid_detects_scale,
     "tool_select_scorer": check_tool_select_scorer,
     "tool_usage_scorer": check_tool_usage_scorer,
+    "timing_lint_good": check_timing_lint_good,
+    "timing_lint_detects": check_timing_lint_detects,
+    "timing_lint_live_shape": check_timing_lint_live_shape,
+    "linter_autobudget": check_linter_autobudget,
+    "export_guard": check_export_guard,
 }
 
 
