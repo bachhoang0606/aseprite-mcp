@@ -37,8 +37,40 @@ covers deliberate file-level operations.
   `live_export_tileset` (Tiled `.tsj` with a blob-47 wangset, Godot `.tres`, or JSON).
 - **Offline tools**: `export_sprite`, `export_spritesheet`, `change_color_mode`, and
   the **gated** `run_lua_script` / `execute_cli` escape hatch (off by default).
+- **Quality gates** (plugin-side, stdlib Python): `lint_sprite` (off-palette / orphan /
+  size-budget), `timing_lint` (per-state animation frame timing), `silhouette_iou`
+  (cross-frame volume drift) — the machine-checkable half of the rulebook, wired into CI.
 
 See `docs/live-tools.md` and `docs/live-command-matrix.md` for the full surface.
+
+## Use it as a Claude Code plugin (`/pixel-*` commands)
+
+Beyond the raw MCP tools, this repo ships a **Claude Code plugin**,
+`aseprite-pixel-art`, that turns the encoded pixel-art rules into user-facing **slash
+commands**, plus review/rig/palette/animation subagents and live-first guard hooks.
+(The MCP server described above is one component the plugin bundles — see
+[docs/QUICKSTART.md](docs/QUICKSTART.md).)
+
+| Command | Does |
+|---------|------|
+| `/pixel-new` | Scaffold a sprite: size, palette, rigged layers |
+| `/pixel-palette` | Set / load / optimize a palette with hue-shifted ramps |
+| `/pixel-shade` | Ramp-shade a layer (one light direction, no pillow/banding) |
+| `/pixel-animate` | Idle/walk/attack frames + tags + per-state timing |
+| `/pixel-tileset` | Build + export a deduplicated tileset/tilemap |
+| `/pixel-export` | Export PNG/GIF/spritesheet (+ JSON meta) |
+| `/pixel-review` | Scored critique vs the rulebook (static **and** animation) |
+| `/pixel-reference-motion` | Rotoscope a video/GIF/frame sequence into a clean animation |
+| `/pixel-asset` | Find a free/CC0 asset or palette → import with provenance |
+| `/pixel-generate` | Opt-in escape-hatch for organic-from-scratch subjects (discipline-first) |
+| `/pixel-doctor` | Diagnose the live bridge / SAC / config when `live_*` won't connect |
+
+**Install:** `claude --plugin-dir ./` (dev) or
+`claude plugin install aseprite-pixel-art@<marketplace>` (published). Once installed,
+commands are namespaced — `/aseprite-pixel-art:pixel-new` … See the
+**[Quickstart](docs/QUICKSTART.md)** for a 5-minute first draw, **`skills/README.md`**
+for the full command reference, and **[Using it with Codex](docs/codex.md)** for the
+non-Claude-Code path (MCP tools + Codex skills).
 
 ## Architecture
 

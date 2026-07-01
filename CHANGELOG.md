@@ -30,6 +30,13 @@
 - **Gap analysis doc (`docs/research/pixel-art-studio-gap-analysis.md`).** Verified
   map of the sibling `pixel-art-studio` R&D repo vs. this project, with an A/B/C
   necessity framework. This release lands Group A (aligned, on-identity gates).
+- **Codex integration.** `AGENTS.md` (discipline for agents without enforcing hooks) +
+  `.agents/skills/` Codex-format skills (a `pixel-art` umbrella + `pixel-new`/`palette`/
+  `animate`/`review`/`doctor`; Codex custom prompts are deprecated).
+- **User docs for the plugin + Codex.** README now documents the `aseprite-pixel-art`
+  **Claude Code plugin** and its `/pixel-*` commands (README was previously server-only)
+  plus the plugin-side quality gates; new **`docs/codex.md`** covers the Codex path (MCP
+  tools + `.agents/skills/` + `AGENTS.md`).
 
 ### Changed
 - **`tools/lint_sprite.py` auto-derives the colour budget from canvas size**
