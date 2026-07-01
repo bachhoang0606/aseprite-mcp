@@ -91,6 +91,10 @@ jobs:
         run: |
           python tools/lint_sprite.py tests/visual/fixtures/bad_offpalette.png \
             --palette knowledge/palettes/goblin-default.json --warn-only
+      - name: Animation timing + export guards — self-tests (live/export/simple shapes)
+        run: |
+          python tools/timing_lint.py --selftest
+          python tools/export_guard.py --selftest
       - name: Seam-lint tests (tile edge-match, SPEC-003 Phase 4)
         run: python tests/test_seam_lint.py
 

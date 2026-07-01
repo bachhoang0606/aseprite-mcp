@@ -1,0 +1,10 @@
+{
+  "description": "Resolution -> colour budget + technique guidance (the 'scale hierarchy' in rules/03 / rules/01). Used by tools/lint_sprite.py to auto-derive --budget from canvas size when none is given, and as generation defaults for /pixel-new & /pixel-palette. Pick the FIRST tier whose `max_side` >= the sprite's longer side.",
+  "tiers": [
+    { "max_side": 16,    "color_budget": 8,  "aa": false, "note": "icon / tiny: silhouette + flat fills, no AA; imply motion with sub-pixel colour, not shape" },
+    { "max_side": 32,    "color_budget": 16, "aa": false, "note": "small character: minimal AA at most, hue-shifted 3-5 step ramps" },
+    { "max_side": 64,    "color_budget": 24, "aa": true,  "note": "medium: selective hand-placed AA on key curves" },
+    { "max_side": 128,   "color_budget": 32, "aa": true,  "note": "large: full ramps, purposeful dithering ok" },
+    { "max_side": 99999, "color_budget": 48, "aa": true,  "note": "very large / scene: richest palette" }
+  ]
+}

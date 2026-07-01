@@ -45,6 +45,8 @@
 - [ ] Loose parts (cloth/ears/sack) overlap/lag by a frame.
 - [ ] Volume preserved frame-to-frame; weapon stays a readable big shape.
 - [ ] Tags correct (`idle`/`walk`/`attack`); loops cleanly at target speed.
+> This is the quick pass. For a scored animation review (timing/volume/feel,
+> gated by `tools/timing_lint.py` + `tools/silhouette_iou.py`), use `07-animation-review.md`.
 
 ## H. Output (must, if exporting)
 - [ ] Exports cleanly (PNG/GIF/spritesheet) with correct metadata.

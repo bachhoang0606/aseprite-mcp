@@ -1,0 +1,22 @@
+{
+  "name": "tanker-chibi",
+  "description": "24px chibi tanker: steel armour ramp + gold/bronze accent + leather + dark plum outline (+ skin/red reserved).",
+  "colors": [
+    "#2a2330",
+    "#3b4a63",
+    "#51688a",
+    "#7188a8",
+    "#9fb2cb",
+    "#8a5a2b",
+    "#e0a93a",
+    "#f6d479",
+    "#6b4a3a",
+    "#e29b6b",
+    "#b06a4a",
+    "#a83246"
+  ],
+  "ramps": {
+    "steel": ["#3b4a63", "#51688a", "#7188a8", "#9fb2cb"],
+    "gold": ["#8a5a2b", "#e0a93a", "#f6d479"]
+  }
+}

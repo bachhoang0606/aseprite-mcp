@@ -1,0 +1,22 @@
+{
+  "description": "Per-state animation frame-timing budgets (milliseconds) for tools/timing_lint.py. Encodes the timing doctrine in rules/04-animation.md as machine-checkable bands so the animation rule family gets the same deterministic gate the palette/orphan/silhouette rules already have. Bands are deliberately wide and project-neutral; tighten per project if needed.",
+  "matching": "A tag is classified into a state when its lowercased name CONTAINS one of the state's `match` keywords (substring). Unmatched tags are skipped (honest > noisy).",
+  "fields": {
+    "per_frame_ms": "[min,max] band each frame in the tag must fall within (e.g. idle too fast = jitter, too slow = sluggish).",
+    "min_frame_ms": "lower bound only, for states whose upper bound is intentionally open (an attack hold is meant to be long).",
+    "require_hold_ms": "at least one frame in the tag must be held >= this (the impact/hold beat). Pure timing, not the white-flash check (that is combat_lint, Group C).",
+    "easing_expected": "true => a >=3-frame tag where every frame has identical duration is flagged uniform_timing (no easing).",
+    "must_not_loop": "true => flag if the tag loops infinitely (repeat == 0); a death/KO state should play once."
+  },
+  "states": {
+    "idle":   { "match": ["idle", "breath"],                          "per_frame_ms": [150, 350] },
+    "walk":   { "match": ["walk"],                                    "per_frame_ms": [70, 180] },
+    "run":    { "match": ["run", "sprint"],                           "per_frame_ms": [50, 130] },
+    "dodge":  { "match": ["dodge", "dash", "roll", "evade"],          "per_frame_ms": [30, 130] },
+    "attack": { "match": ["attack", "slash", "swing", "strike", "stab", "shoot"], "min_frame_ms": 30, "require_hold_ms": 150, "easing_expected": true },
+    "cast":   { "match": ["cast", "spell", "channel", "summon"],      "per_frame_ms": [50, 350] },
+    "jump":   { "match": ["jump", "leap", "hop", "fall"],             "min_frame_ms": 30 },
+    "hit":    { "match": ["hit", "hurt", "damage", "flinch"],         "per_frame_ms": [30, 160] },
+    "death":  { "match": ["death", "die", "defeat", "ko"],            "min_frame_ms": 40, "must_not_loop": true }
+  }
+}

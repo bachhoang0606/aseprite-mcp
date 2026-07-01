@@ -53,8 +53,10 @@ def main() -> None:
         sys.exit(0)
 
     # Optional project palette for off-palette detection.
+    # Scope this passive save-time advisory to structural defects (orphan/off-palette);
+    # the size-derived colour budget is a /pixel-review concern, not a per-save alarm.
     palette = os.environ.get("ASEPRITE_MCP_PALETTE")
-    cmd = [sys.executable, linter, path, "--warn-only"]
+    cmd = [sys.executable, linter, path, "--warn-only", "--no-auto-budget"]
     if palette and os.path.exists(palette):
         cmd += ["--palette", palette]
 

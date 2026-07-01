@@ -19,6 +19,12 @@ self-review every other skill must pass before declaring done.
    A silhouette/readability · B palette/color · C form/light · D linework ·
    E proportion/view (incl. true 3/4 asymmetry) · F rig/layers · G animation ·
    H output. Mark each line pass / weak / fail.
+   - **If animated**, do section G as the scored rubric in `rules/07-animation-review.md`,
+     grounded by the deterministic gates (don't eyeball what a tool can decide):
+     `python tools/timing_lint.py clip.json` (per-state timing; export the clip from
+     `live_list_tags` + `live_list_frames`), `python tools/silhouette_iou.py` (volume
+     drift), and `python tools/lint_sprite.py` per frame. Cite the tool finding in the
+     report.
 4. **Diagnose with location**: name the *region/layer/frame* and the *specific*
    defect using the right term — pillow-shading, banding, jaggies, orphan pixels,
    value-only ramp, off-palette stray, tangent, 1-px limb, skating, weapon-stub.
